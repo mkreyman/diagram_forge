@@ -31,6 +31,9 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
      |> assign(:prompt, "")
      |> assign(:uploaded_files, [])
      |> assign(:generating, false)
+     |> assign(:generating_concepts, MapSet.new())
+     |> assign(:generation_total, 0)
+     |> assign(:generation_completed, 0)
      |> allow_upload(:document,
        accept: ~w(.pdf .md .markdown),
        max_entries: 1,
@@ -44,13 +47,21 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     concepts = Diagrams.list_concepts_for_document(document.id)
     diagrams = Diagrams.list_diagrams_for_document(document.id)
 
+    # Subscribe to generation progress for this document
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(DiagramForge.PubSub, "diagram_generation:#{document.id}")
+    end
+
     {:noreply,
      socket
      |> assign(:selected_document, document)
      |> assign(:concepts, concepts)
      |> assign(:diagrams, diagrams)
      |> assign(:selected_concepts, MapSet.new())
-     |> assign(:selected_diagram, nil)}
+     |> assign(:selected_diagram, nil)
+     |> assign(:generating_concepts, MapSet.new())
+     |> assign(:generation_total, 0)
+     |> assign(:generation_completed, 0)}
   end
 
   @impl true
@@ -70,9 +81,12 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   @impl true
   def handle_event("generate_diagrams", _params, socket) do
-    socket.assigns.selected_concepts
+    document_id = socket.assigns.selected_document.id
+    selected_concept_ids = socket.assigns.selected_concepts
+
+    selected_concept_ids
     |> Enum.each(fn concept_id ->
-      %{"concept_id" => concept_id}
+      %{"concept_id" => concept_id, "document_id" => document_id}
       |> GenerateDiagramJob.new()
       |> Oban.insert()
     end)
@@ -81,9 +95,12 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
      socket
      |> put_flash(
        :info,
-       "Generating #{MapSet.size(socket.assigns.selected_concepts)} diagram(s)..."
+       "Generating #{MapSet.size(selected_concept_ids)} diagram(s)..."
      )
-     |> assign(:selected_concepts, MapSet.new())}
+     |> assign(:selected_concepts, MapSet.new())
+     |> assign(:generating_concepts, selected_concept_ids)
+     |> assign(:generation_total, MapSet.size(selected_concept_ids))
+     |> assign(:generation_completed, 0)}
   end
 
   @impl true
@@ -188,6 +205,41 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
   end
 
   @impl true
+  def handle_info({:generation_started, _concept_id}, socket) do
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:generation_completed, concept_id, _diagram_id}, socket) do
+    generating_concepts = MapSet.delete(socket.assigns.generating_concepts, concept_id)
+    generation_completed = socket.assigns.generation_completed + 1
+
+    # Refresh diagrams list
+    diagrams =
+      if socket.assigns.selected_document do
+        Diagrams.list_diagrams_for_document(socket.assigns.selected_document.id)
+      else
+        []
+      end
+
+    {:noreply,
+     socket
+     |> assign(:generating_concepts, generating_concepts)
+     |> assign(:generation_completed, generation_completed)
+     |> assign(:diagrams, diagrams)}
+  end
+
+  @impl true
+  def handle_info({:generation_failed, concept_id, reason}, socket) do
+    generating_concepts = MapSet.delete(socket.assigns.generating_concepts, concept_id)
+
+    {:noreply,
+     socket
+     |> assign(:generating_concepts, generating_concepts)
+     |> put_flash(:error, "Failed to generate diagram: #{inspect(reason)}")}
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <div class="min-h-screen bg-slate-950 text-slate-100">
@@ -289,6 +341,23 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                   </button>
                 <% end %>
               </div>
+
+              <%= if @generation_total > 0 do %>
+                <div class="mb-4 p-3 bg-blue-900/30 border border-blue-700/50 rounded-lg">
+                  <div class="flex items-center justify-between text-sm">
+                    <span class="text-blue-300">
+                      Generating diagrams: {@generation_completed} of {@generation_total}
+                    </span>
+                    <div class="w-32 h-2 bg-slate-700 rounded-full overflow-hidden">
+                      <div
+                        class="h-full bg-blue-500 transition-all duration-300"
+                        style={"width: #{if @generation_total > 0, do: (@generation_completed / @generation_total * 100), else: 0}%"}
+                      >
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              <% end %>
 
               <div class="space-y-2">
                 <%= if @selected_document do %>
