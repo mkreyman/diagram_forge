@@ -48,9 +48,11 @@ defmodule DiagramForge.Diagrams.Workers.GenerateDiagramJobTest do
     end
 
     test "returns error when concept not found" do
-      # Non-existent concept ID
+      # Non-existent concept ID (using a random UUID)
+      non_existent_id = Ecto.UUID.generate()
+
       assert_raise Ecto.NoResultsError, fn ->
-        perform_job(GenerateDiagramJob, %{"concept_id" => 99_999})
+        perform_job(GenerateDiagramJob, %{"concept_id" => non_existent_id})
       end
     end
 

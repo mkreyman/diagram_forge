@@ -48,7 +48,9 @@ defmodule DiagramForge.Repo.Migrations.MakeConceptsGloballyUnique do
 
     # Step 2: Make document_id nullable (it now means "first seen in this document")
     alter table(:concepts) do
-      modify :document_id, :bigint, null: true, from: {:bigint, null: false}
+      modify :document_id, references(:documents, type: :binary_id),
+        null: true,
+        from: {references(:documents, type: :binary_id), null: false}
     end
 
     # Step 3: Drop the old unique index and create a new one on name only
@@ -63,7 +65,9 @@ defmodule DiagramForge.Repo.Migrations.MakeConceptsGloballyUnique do
 
     # Make document_id required again (may fail if there are null values)
     alter table(:concepts) do
-      modify :document_id, :bigint, null: false, from: {:bigint, null: true}
+      modify :document_id, references(:documents, type: :binary_id),
+        null: false,
+        from: {references(:documents, type: :binary_id), null: true}
     end
   end
 end

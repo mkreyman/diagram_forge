@@ -184,7 +184,7 @@ defmodule DiagramForge.Diagrams do
   defp maybe_add_distinct(query, false), do: query
 
   defp maybe_add_distinct(query, true) do
-    from c in query, distinct: c.id
+    from c in query, distinct: true
   end
 
   # Count-specific filters that don't use distinct (since count uses count(distinct))

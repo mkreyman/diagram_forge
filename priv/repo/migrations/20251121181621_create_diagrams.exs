@@ -2,9 +2,10 @@ defmodule DiagramForge.Repo.Migrations.CreateDiagrams do
   use Ecto.Migration
 
   def change do
-    create table(:diagrams) do
-      add :concept_id, references(:concepts, on_delete: :nilify_all)
-      add :document_id, references(:documents, on_delete: :nilify_all)
+    create table(:diagrams, primary_key: false) do
+      add :id, :binary_id, primary_key: true
+      add :concept_id, references(:concepts, type: :binary_id, on_delete: :nilify_all)
+      add :document_id, references(:documents, type: :binary_id, on_delete: :nilify_all)
       add :slug, :string, null: false
       add :title, :string, null: false
       add :domain, :string

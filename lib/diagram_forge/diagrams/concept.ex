@@ -9,6 +9,9 @@ defmodule DiagramForge.Diagrams.Concept do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+
   schema "concepts" do
     belongs_to :document, DiagramForge.Diagrams.Document
 

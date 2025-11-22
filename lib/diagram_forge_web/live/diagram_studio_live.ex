@@ -54,7 +54,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
   def handle_params(params, _url, socket) do
     page = parse_int(params["page"], 1)
     page_size = parse_int(params["page_size"], 10)
-    document_id = parse_int(params["document_id"], nil)
+    document_id = params["document_id"]
     only_with_diagrams = parse_bool(params["only_with_diagrams"], true)
     search_query = params["search_query"] || ""
 
@@ -125,14 +125,13 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   @impl true
   def handle_event("toggle_concept", %{"id" => id}, socket) do
-    concept_id = String.to_integer(id)
     selected = socket.assigns.selected_concepts
 
     selected =
-      if MapSet.member?(selected, concept_id) do
-        MapSet.delete(selected, concept_id)
+      if MapSet.member?(selected, id) do
+        MapSet.delete(selected, id)
       else
-        MapSet.put(selected, concept_id)
+        MapSet.put(selected, id)
       end
 
     {:noreply, assign(socket, :selected_concepts, selected)}
@@ -140,14 +139,13 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   @impl true
   def handle_event("toggle_concept_expand", %{"id" => id}, socket) do
-    concept_id = String.to_integer(id)
     expanded = socket.assigns.expanded_concepts
 
     expanded =
-      if MapSet.member?(expanded, concept_id) do
-        MapSet.delete(expanded, concept_id)
+      if MapSet.member?(expanded, id) do
+        MapSet.delete(expanded, id)
       else
-        MapSet.put(expanded, concept_id)
+        MapSet.put(expanded, id)
       end
 
     {:noreply, assign(socket, :expanded_concepts, expanded)}
