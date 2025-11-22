@@ -15,6 +15,7 @@ defmodule DiagramForge.Diagrams.Diagram do
   schema "diagrams" do
     belongs_to :concept, DiagramForge.Diagrams.Concept
     belongs_to :document, DiagramForge.Diagrams.Document
+    belongs_to :user, DiagramForge.Accounts.User
 
     field :slug, :string
     field :title, :string
@@ -26,6 +27,7 @@ defmodule DiagramForge.Diagrams.Diagram do
     field :diagram_source, :string
     field :summary, :string
     field :notes_md, :string
+    field :created_by_superadmin, :boolean, default: false
 
     timestamps()
   end
@@ -35,6 +37,7 @@ defmodule DiagramForge.Diagrams.Diagram do
     |> cast(attrs, [
       :concept_id,
       :document_id,
+      :user_id,
       :slug,
       :title,
       :domain,
@@ -42,7 +45,8 @@ defmodule DiagramForge.Diagrams.Diagram do
       :format,
       :diagram_source,
       :summary,
-      :notes_md
+      :notes_md,
+      :created_by_superadmin
     ])
     |> validate_required([:title, :format, :diagram_source, :slug])
     |> unique_constraint(:slug)

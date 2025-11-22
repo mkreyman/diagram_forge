@@ -14,6 +14,10 @@ unless config_env() == :test do
     model: "gpt-4o-mini"
 end
 
+# Configure superadmin
+config :diagram_forge,
+  superadmin_email: System.get_env("DF_SUPERADMIN_USER")
+
 # ## Using releases
 #
 # If you use `mix release`, you need to explicitly enable the server

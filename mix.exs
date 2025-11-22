@@ -72,6 +72,8 @@ defmodule DiagramForge.MixProject do
       {:bandit, "~> 1.5"},
       {:oban, "~> 2.18"},
       {:earmark, "~> 1.4"},
+      {:ueberauth, "~> 0.10"},
+      {:ueberauth_github, "~> 0.8"},
       {:mox, "~> 1.0", only: :test},
       {:bypass, "~> 2.1", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

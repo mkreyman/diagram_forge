@@ -328,4 +328,89 @@ defmodule DiagramForge.Diagrams do
 
     DiagramGenerator.generate_from_prompt(prompt, opts)
   end
+
+  # Authorization functions
+
+  @doc """
+  Lists diagrams visible to the given user in the Concepts sidebar.
+
+  - Superadmin: sees all diagrams
+  - Authenticated user: sees own diagrams + public diagrams + superadmin diagrams
+  - Guest (nil user): sees only public diagrams
+  """
+  def list_visible_diagrams(user \\ nil) do
+    alias DiagramForge.Accounts
+
+    cond do
+      user && Accounts.user_is_superadmin?(user) ->
+        list_diagrams()
+
+      user ->
+        Repo.all(
+          from d in Diagram,
+            where:
+              d.user_id == ^user.id or
+                is_nil(d.user_id) or
+                d.created_by_superadmin == true,
+            order_by: [desc: d.inserted_at]
+        )
+
+      true ->
+        Repo.all(
+          from d in Diagram,
+            where: is_nil(d.user_id) or d.created_by_superadmin == true,
+            order_by: [desc: d.inserted_at]
+        )
+    end
+  end
+
+  @doc """
+  Gets a diagram for viewing via direct link.
+
+  Any diagram can be viewed if you have the direct link (ID),
+  regardless of user ownership. This allows users to share their diagrams
+  via direct links while keeping them private in the concepts list.
+  """
+  def get_diagram_for_viewing(id_or_slug) do
+    # This function allows public access to ANY diagram via direct link
+    case Ecto.UUID.cast(id_or_slug) do
+      {:ok, uuid} -> get_diagram!(uuid)
+      :error -> get_diagram_by_slug(id_or_slug)
+    end
+  end
+
+  @doc """
+  Checks if a user can edit a diagram.
+
+  - Superadmin: can edit all diagrams
+  - Owner: can edit their own diagrams
+  - Others: cannot edit
+  """
+  def can_edit_diagram?(%Diagram{} = diagram, user) do
+    alias DiagramForge.Accounts
+
+    cond do
+      user && Accounts.user_is_superadmin?(user) -> true
+      user && diagram.user_id == user.id -> true
+      true -> false
+    end
+  end
+
+  @doc """
+  Creates a diagram with user ownership.
+  """
+  def create_diagram_for_user(attrs, user) do
+    alias DiagramForge.Accounts
+
+    is_superadmin = user && Accounts.user_is_superadmin?(user)
+
+    attrs =
+      attrs
+      |> Map.put(:user_id, user && user.id)
+      |> Map.put(:created_by_superadmin, is_superadmin)
+
+    %Diagram{}
+    |> Diagram.changeset(attrs)
+    |> Repo.insert()
+  end
 end

@@ -8,10 +8,23 @@ defmodule DiagramForgeWeb.Router do
     plug :put_root_layout, html: {DiagramForgeWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug DiagramForgeWeb.Plugs.Auth
   end
 
   pipeline :api do
     plug :accepts, ["json"]
+  end
+
+  pipeline :require_auth do
+    plug DiagramForgeWeb.Plugs.RequireAuth
+  end
+
+  scope "/auth", DiagramForgeWeb do
+    pipe_through :browser
+
+    get "/github", AuthController, :request
+    get "/github/callback", AuthController, :callback
+    get "/logout", AuthController, :logout
   end
 
   scope "/", DiagramForgeWeb do

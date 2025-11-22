@@ -12,6 +12,8 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
   alias DiagramForge.Diagrams
   alias DiagramForge.Diagrams.Workers.{GenerateDiagramJob, ProcessDocumentJob}
 
+  on_mount DiagramForgeWeb.UserLive
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
@@ -61,10 +63,11 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     search_query = params["search_query"] || ""
 
     # If diagram ID is provided, load the diagram and set it as selected
+    # Note: get_diagram_for_viewing allows public access via direct link
     socket =
       if diagram_id do
         try do
-          diagram = Diagrams.get_diagram!(diagram_id)
+          diagram = Diagrams.get_diagram_for_viewing(diagram_id)
 
           socket
           |> assign(:selected_diagram, diagram)
@@ -79,8 +82,8 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         socket
       end
 
-    # Load all diagrams to display in concept expansions
-    diagrams = Diagrams.list_diagrams()
+    # Load diagrams visible to current user (filtered by ownership)
+    diagrams = Diagrams.list_visible_diagrams(socket.assigns[:current_user])
 
     {:noreply,
      socket
@@ -364,7 +367,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   @impl true
   def handle_info({:diagram_created, _diagram_id}, socket) do
-    diagrams = Diagrams.list_diagrams()
+    diagrams = Diagrams.list_visible_diagrams(socket.assigns[:current_user])
     {:noreply, assign(socket, :diagrams, diagrams)}
   end
 
@@ -387,8 +390,8 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         search_query: socket.assigns.search_query
       )
 
-    # Reload all diagrams to show the new diagram in concept expansions
-    diagrams = Diagrams.list_diagrams()
+    # Reload diagrams visible to current user
+    diagrams = Diagrams.list_visible_diagrams(socket.assigns[:current_user])
 
     {:noreply,
      socket
@@ -434,9 +437,48 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
       <%!-- Top Navbar --%>
       <div class="bg-slate-900 border-b border-slate-800">
         <div class="container mx-auto px-4 py-3">
-          <div class="flex items-center gap-3">
-            <img src={~p"/images/logo.png"} alt="DiagramForge" class="h-10 w-10" />
-            <h1 class="text-xl font-bold text-slate-100">DiagramForge Studio</h1>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <img src={~p"/images/logo.png"} alt="DiagramForge" class="h-10 w-10" />
+              <h1 class="text-xl font-bold text-slate-100">DiagramForge Studio</h1>
+            </div>
+            <div class="flex items-center gap-4">
+              <%= if @current_user do %>
+                <div class="flex items-center gap-3">
+                  <%= if @current_user.avatar_url do %>
+                    <img
+                      src={@current_user.avatar_url}
+                      alt={@current_user.name || @current_user.email}
+                      class="w-8 h-8 rounded-full"
+                    />
+                  <% end %>
+                  <span class="text-sm text-slate-300">
+                    {@current_user.name || @current_user.email}
+                  </span>
+                  <%= if @is_superadmin do %>
+                    <span class="px-2 py-1 text-xs bg-purple-600 text-white rounded">
+                      Admin
+                    </span>
+                  <% end %>
+                  <.link
+                    href="/auth/logout"
+                    class="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition"
+                  >
+                    Sign Out
+                  </.link>
+                </div>
+              <% else %>
+                <.link
+                  href="/auth/github"
+                  class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded transition flex items-center gap-2"
+                >
+                  <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+                  </svg>
+                  Sign in with GitHub
+                </.link>
+              <% end %>
+            </div>
           </div>
         </div>
       </div>
