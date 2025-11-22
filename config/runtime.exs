@@ -7,6 +7,13 @@ import Config
 # any compile-time configuration in here, as it won't be applied.
 # The block below contains prod specific runtime configuration.
 
+# Configure AI client (test environment uses config/test.exs)
+unless config_env() == :test do
+  config :diagram_forge, DiagramForge.AI,
+    api_key: System.get_env("OPENAI_API_KEY"),
+    model: "gpt-4o-mini"
+end
+
 # ## Using releases
 #
 # If you use `mix release`, you need to explicitly enable the server
@@ -54,12 +61,6 @@ if config_env() == :prod do
   port = String.to_integer(System.get_env("PORT") || "4000")
 
   config :diagram_forge, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
-
-  # Configure AI client for production
-  config :diagram_forge, DiagramForge.AI,
-    api_key:
-      System.get_env("OPENAI_API_KEY") || raise("Missing OPENAI_API_KEY environment variable"),
-    model: "gpt-4o-mini"
 
   config :diagram_forge, DiagramForgeWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],

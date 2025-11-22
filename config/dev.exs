@@ -86,8 +86,3 @@ config :phoenix_live_view,
 
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
-
-# Configure AI client for development
-config :diagram_forge, DiagramForge.AI,
-  api_key: System.get_env("OPENAI_API_KEY"),
-  model: "gpt-4o-mini"
