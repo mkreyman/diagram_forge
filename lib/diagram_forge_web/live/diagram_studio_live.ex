@@ -17,6 +17,8 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(DiagramForge.PubSub, "documents")
       Phoenix.PubSub.subscribe(DiagramForge.PubSub, "diagrams")
+      # Schedule periodic document refresh to auto-hide completed documents after 5 minutes
+      schedule_document_refresh()
     end
 
     {:ok,
@@ -413,6 +415,16 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
      |> assign(:generating_concepts, generating_concepts)
      |> assign(:failed_generations, failed_generations)
      |> put_flash(:error, "Failed to generate diagram: #{inspect(reason)}")}
+  end
+
+  def handle_info(:refresh_documents, socket) do
+    # Reload documents to auto-hide completed documents after 5 minutes
+    documents = list_documents()
+
+    # Schedule the next refresh
+    schedule_document_refresh()
+
+    {:noreply, assign(socket, :documents, documents)}
   end
 
   @impl true
@@ -945,6 +957,11 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   defp count_concepts(opts) do
     Diagrams.count_concepts(opts)
+  end
+
+  defp schedule_document_refresh do
+    # Refresh documents every minute to auto-hide completed documents after 5 minutes
+    Process.send_after(self(), :refresh_documents, 60_000)
   end
 
   defp maybe_update_selected_document(socket, _document_id) do

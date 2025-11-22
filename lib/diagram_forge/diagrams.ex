@@ -12,7 +12,11 @@ defmodule DiagramForge.Diagrams do
   # Documents
 
   @doc """
-  Returns the list of documents.
+  Returns the list of documents that should be visible.
+
+  Documents are visible if:
+  - They are currently being processed (status: :uploaded or :processing), OR
+  - They were completed within the last 5 minutes (status: :ready or :error with completed_at within 5 minutes)
 
   ## Examples
 
@@ -21,7 +25,16 @@ defmodule DiagramForge.Diagrams do
 
   """
   def list_documents do
-    Repo.all(from d in Document, order_by: [desc: d.inserted_at])
+    five_minutes_ago = DateTime.utc_now() |> DateTime.add(-5, :minute)
+
+    query =
+      from d in Document,
+        where:
+          d.status in [:uploaded, :processing] or
+            (d.status in [:ready, :error] and d.completed_at >= ^five_minutes_ago),
+        order_by: [desc: d.inserted_at]
+
+    Repo.all(query)
   end
 
   @doc """
