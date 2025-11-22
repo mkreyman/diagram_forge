@@ -108,7 +108,7 @@ defmodule DiagramForge.Diagrams do
   ## Options
 
     * `:page` - Page number (default: 1)
-    * `:page_size` - Number of concepts per page (default: 20)
+    * `:page_size` - Number of concepts per page (default: 10)
 
   ## Examples
 
@@ -120,7 +120,7 @@ defmodule DiagramForge.Diagrams do
   """
   def list_concepts(opts \\ []) do
     page = Keyword.get(opts, :page, 1)
-    page_size = Keyword.get(opts, :page_size, 20)
+    page_size = Keyword.get(opts, :page_size, 10)
     offset = (page - 1) * page_size
 
     Repo.all(

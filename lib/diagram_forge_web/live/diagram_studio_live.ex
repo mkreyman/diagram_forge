@@ -24,9 +24,9 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
      |> assign(:documents, list_documents())
      |> assign(:selected_document, nil)
      |> assign(:concepts_page, 1)
-     |> assign(:concepts_page_size, 20)
+     |> assign(:concepts_page_size, 10)
      |> assign(:concepts_total, count_concepts())
-     |> assign(:concepts, list_concepts(page: 1, page_size: 20))
+     |> assign(:concepts, list_concepts(page: 1, page_size: 10))
      |> assign(:category_filter, nil)
      |> assign(:selected_concepts, MapSet.new())
      |> assign(:expanded_concepts, MapSet.new())
@@ -455,7 +455,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                     name="page_size"
                     class="bg-slate-800 text-slate-300 rounded px-2 py-1"
                   >
-                    <%= for size <- [10, 20, 50, 100] do %>
+                    <%= for size <- [5, 10, 25, 50] do %>
                       <option value={size} selected={@concepts_page_size == size}>
                         {size}
                       </option>
