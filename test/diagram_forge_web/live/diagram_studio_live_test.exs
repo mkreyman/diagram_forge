@@ -818,6 +818,135 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
     end
   end
 
+  describe "pagination" do
+    test "loads with default pagination params from URL", %{conn: conn} do
+      # Create 15 concepts to test pagination (padded for correct alphabetical sorting)
+      for i <- 1..15 do
+        fixture(:concept, name: "Concept #{String.pad_leading(Integer.to_string(i), 2, "0")}")
+      end
+
+      {:ok, _view, html} = live(conn, ~p"/?page=1&page_size=5")
+
+      # Should show first 5 concepts
+      assert html =~ "Concept 01"
+      assert html =~ "Concept 05"
+      # Should not show concepts beyond page 1
+      refute html =~ "Concept 06"
+
+      # Should show correct page info
+      assert html =~ "Page 1 of 3"
+      assert html =~ "15 total"
+    end
+
+    test "changing page size updates URL and displays correct number of items", %{conn: conn} do
+      # Create 15 concepts (padded for correct alphabetical sorting)
+      for i <- 1..15 do
+        fixture(:concept, name: "Concept #{String.pad_leading(Integer.to_string(i), 2, "0")}")
+      end
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      # Initially shows 10 items (default page size)
+      html = render(view)
+      assert html =~ "Concept 01"
+      assert html =~ "Concept 10"
+      refute html =~ "Concept 11"
+
+      # Change page size to 5
+      view
+      |> element("form[phx-change='concepts_change_page_size']")
+      |> render_change(%{"page_size" => "5"})
+
+      # Verify URL was updated
+      assert_patch(view, ~p"/?page=1&page_size=5")
+
+      # Now should only show 5 items
+      html = render(view)
+      assert html =~ "Concept 01"
+      assert html =~ "Concept 05"
+      refute html =~ "Concept 06"
+
+      # Verify pagination info updated
+      assert html =~ "Page 1 of 3"
+    end
+
+    test "navigating pages updates URL and displays correct items", %{conn: conn} do
+      # Create 15 concepts (padded for correct alphabetical sorting)
+      for i <- 1..15 do
+        fixture(:concept, name: "Concept #{String.pad_leading(Integer.to_string(i), 2, "0")}")
+      end
+
+      {:ok, view, _html} = live(conn, ~p"/?page=1&page_size=5")
+
+      # Click next page
+      view
+      |> element("button[phx-value-page='2']")
+      |> render_click()
+
+      # Verify URL was updated
+      assert_patch(view, ~p"/?page=2&page_size=5")
+
+      # Verify we see page 2 items (concepts 6-10)
+      html = render(view)
+      refute html =~ "Concept 05"
+      assert html =~ "Concept 06"
+      assert html =~ "Concept 10"
+      refute html =~ "Concept 11"
+
+      # Verify page info
+      assert html =~ "Page 2 of 3"
+    end
+
+    test "bookmarkable URLs load correct page and size", %{conn: conn} do
+      # Create 30 concepts (padded for correct alphabetical sorting)
+      for i <- 1..30 do
+        fixture(:concept, name: "Concept #{String.pad_leading(Integer.to_string(i), 2, "0")}")
+      end
+
+      # Load page 2 with page size 10 directly from URL
+      {:ok, _view, html} = live(conn, ~p"/?page=2&page_size=10")
+
+      # Should show concepts 11-20
+      refute html =~ "Concept 10"
+      assert html =~ "Concept 11"
+      assert html =~ "Concept 20"
+      refute html =~ "Concept 21"
+
+      # Verify pagination info
+      assert html =~ "Page 2 of 3"
+      assert html =~ "30 total"
+    end
+
+    test "changing page size resets to page 1", %{conn: conn} do
+      # Create 20 concepts (padded for correct alphabetical sorting)
+      for i <- 1..20 do
+        fixture(:concept, name: "Concept #{String.pad_leading(Integer.to_string(i), 2, "0")}")
+      end
+
+      # Start on page 2
+      {:ok, view, _html} = live(conn, ~p"/?page=2&page_size=5")
+
+      # Verify we're on page 2 (concepts 6-10)
+      html = render(view)
+      assert html =~ "Concept 06"
+      assert html =~ "Page 2 of 4"
+
+      # Change page size
+      view
+      |> element("form[phx-change='concepts_change_page_size']")
+      |> render_change(%{"page_size" => "10"})
+
+      # Should reset to page 1
+      assert_patch(view, ~p"/?page=1&page_size=10")
+
+      # Should show first 10 concepts
+      html = render(view)
+      assert html =~ "Concept 01"
+      assert html =~ "Concept 10"
+      assert html =~ "Page 1 of 2"
+    end
+  end
+
   # Helper function to expand a concept before interacting with its content
   defp expand_concept(view, concept_id) do
     view
