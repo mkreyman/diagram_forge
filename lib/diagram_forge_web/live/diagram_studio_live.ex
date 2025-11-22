@@ -121,12 +121,14 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   @impl true
   def handle_event("generate_diagrams", _params, socket) do
-    document_id = socket.assigns.selected_document.id
     selected_concept_ids = socket.assigns.selected_concepts
 
+    # Get document_id from each concept since concepts can be from different documents
     selected_concept_ids
     |> Enum.each(fn concept_id ->
-      %{"concept_id" => concept_id, "document_id" => document_id}
+      concept = Diagrams.get_concept!(concept_id)
+
+      %{"concept_id" => concept_id, "document_id" => concept.document_id}
       |> GenerateDiagramJob.new()
       |> Oban.insert()
     end)
