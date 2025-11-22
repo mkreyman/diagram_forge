@@ -70,9 +70,12 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         |> assign(:selected_document, document)
         |> assign(:diagrams, diagrams)
       else
+        # When no document is selected, load all diagrams to display in concept expansions
+        diagrams = Diagrams.list_diagrams()
+
         socket
         |> assign(:selected_document, nil)
-        |> assign(:diagrams, [])
+        |> assign(:diagrams, diagrams)
       end
 
     {:noreply,
