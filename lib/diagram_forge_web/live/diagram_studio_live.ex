@@ -1029,7 +1029,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                     id="mermaid-preview"
                     phx-hook="Mermaid"
                     class={[
-                      "rounded-lg p-8 transition-colors",
+                      "rounded-lg p-8 transition-colors flex items-center justify-center",
                       @diagram_theme == "light" && "bg-white",
                       @diagram_theme == "dark" && "bg-slate-950"
                     ]}
