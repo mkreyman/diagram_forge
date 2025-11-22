@@ -104,6 +104,7 @@ defmodule DiagramForgeWeb.AuthController do
   # Safely convert known diagram string keys to atoms
   defp atomize_diagram_keys(attrs) when is_map(attrs) do
     %{
+      concept_id: attrs["concept_id"],
       title: attrs["title"],
       slug: attrs["slug"],
       diagram_source: attrs["diagram_source"],

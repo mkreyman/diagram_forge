@@ -254,6 +254,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
         # Extract diagram attributes for session storage
         attrs = %{
+          concept_id: diagram.concept_id,
           title: diagram.title,
           slug: diagram.slug,
           diagram_source: diagram.diagram_source,
@@ -279,6 +280,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
         # Convert diagram struct to attributes for create_diagram_for_user
         attrs = %{
+          concept_id: diagram.concept_id,
           title: diagram.title,
           slug: diagram.slug,
           diagram_source: diagram.diagram_source,
