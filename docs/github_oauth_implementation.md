@@ -18,9 +18,10 @@ Implement GitHub OAuth authentication for DiagramForge, following the establishe
    - Can see "public" diagrams (`user_id IS NULL`)
    - Cannot see other users' diagrams
    - Can create their own diagrams
+   - Can share their own diagrams with public by providing a direct link to it
 
 3. **Unauthenticated (Guest) Users**
-   - Can only view "public" diagrams (`user_id IS NULL` or `created_by_superadmin = true`)
+   - Can only view "public" diagrams (`user_id IS NULL` or `created_by_superadmin = true`) under Concepts, but can see any diagram with a direct link to it
    - Cannot create diagrams
    - Cannot save or manage diagrams
 
@@ -349,7 +350,7 @@ end
 
 **File: `lib/diagram_forge_web/router.ex`**
 
-Update the browser pipeline:
+Update the browser pipeline to include the Auth plug:
 
 ```elixir
 pipeline :browser do
@@ -359,7 +360,7 @@ pipeline :browser do
   plug :put_root_layout, html: {DiagramForgeWeb.Layouts, :root}
   plug :protect_from_forgery
   plug :put_secure_browser_headers
-  plug DiagramForgeWeb.Plugs.Auth  # Add this line
+  plug DiagramForgeWeb.Plugs.Auth  # Add this line - loads current_user if session exists
 end
 
 pipeline :require_auth do
@@ -376,6 +377,23 @@ scope "/auth", DiagramForgeWeb do
   get "/github", AuthController, :request
   get "/github/callback", AuthController, :callback
   get "/logout", AuthController, :logout
+end
+```
+
+**IMPORTANT:** The main DiagramStudioLive route should remain on the `:browser` pipeline only (NOT `:require_auth`), since it needs to be accessible to both authenticated and unauthenticated users. The LiveView will show filtered content based on the `@current_user` assign:
+
+```elixir
+scope "/", DiagramForgeWeb do
+  pipe_through :browser
+
+  live "/", DiagramStudioLive, :index  # Public route, shows filtered content
+end
+
+# Example of authenticated-only routes (if you add admin features later):
+scope "/admin", DiagramForgeWeb do
+  pipe_through [:browser, :require_auth]
+
+  live "/users", Admin.UserLive, :index
 end
 ```
 
@@ -430,7 +448,7 @@ Add filtering functions:
 
 ```elixir
 @doc """
-Lists diagrams visible to the given user.
+Lists diagrams visible to the given user in the Concepts sidebar.
 
 - Superadmin: sees all diagrams
 - Authenticated user: sees own diagrams + public diagrams + superadmin diagrams
@@ -461,6 +479,36 @@ def list_visible_diagrams(user \\ nil) do
 end
 
 @doc """
+Gets a diagram for viewing via direct link.
+
+Any diagram can be viewed if you have the direct link (slug or ID),
+regardless of user ownership. This allows users to share their diagrams
+via direct links while keeping them private in the concepts list.
+"""
+def get_diagram_for_viewing(id_or_slug) do
+  # This function allows public access to ANY diagram via direct link
+  case Ecto.UUID.cast(id_or_slug) do
+    {:ok, uuid} -> get_diagram!(uuid)
+    :error -> get_diagram_by_slug(id_or_slug)
+  end
+end
+
+@doc """
+Checks if a user can edit a diagram.
+
+- Superadmin: can edit all diagrams
+- Owner: can edit their own diagrams
+- Others: cannot edit
+"""
+def can_edit_diagram?(%Diagram{} = diagram, user) do
+  cond do
+    user && Accounts.user_is_superadmin?(user) -> true
+    user && diagram.user_id == user.id -> true
+    true -> false
+  end
+end
+
+@doc """
 Creates a diagram with user ownership.
 """
 def create_diagram_for_user(attrs, user) do
@@ -479,7 +527,7 @@ end
 
 ### 11. Update UI Components
 
-Add login/logout button to the header in `lib/diagram_forge_web/components/layouts/app.html.heex`:
+**Add login/logout button to the header** in `lib/diagram_forge_web/components/layouts/app.html.heex`:
 
 ```heex
 <header class="bg-slate-950 border-b border-slate-800">
@@ -503,6 +551,58 @@ Add login/logout button to the header in `lib/diagram_forge_web/components/layou
 </header>
 ```
 
+**Add sharing functionality** to the DiagramStudioLive when viewing a diagram:
+
+```heex
+<%!-- In the diagram detail section --%>
+<div class="flex items-center justify-between mb-3">
+  <h2 class="text-xl font-semibold">{@selected_diagram.title}</h2>
+
+  <%!-- Share button for diagram owners --%>
+  <%= if @current_user && @selected_diagram.user_id == @current_user.id do %>
+    <button
+      phx-click="copy_share_link"
+      class="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition"
+      title="Copy shareable link to clipboard"
+    >
+      📋 Copy Share Link
+    </button>
+  <% end %>
+</div>
+```
+
+And add the corresponding event handler in DiagramStudioLive:
+
+```elixir
+def handle_event("copy_share_link", _params, socket) do
+  diagram = socket.assigns.selected_diagram
+  # Generate the shareable URL (using slug or ID)
+  share_url = url(~p"/diagrams/#{diagram.slug}")
+
+  {:noreply,
+   socket
+   |> push_event("copy-to-clipboard", %{text: share_url})
+   |> put_flash(:info, "Share link copied to clipboard!")}
+end
+```
+
+And add JavaScript hook in `app.js` for clipboard copy:
+
+```javascript
+// Add to hooks object
+const Hooks = {
+  ...colocatedHooks,
+  Mermaid
+}
+
+// Add this event listener
+window.addEventListener("phx:copy-to-clipboard", (e) => {
+  navigator.clipboard.writeText(e.detail.text).then(() => {
+    console.log("Copied to clipboard:", e.detail.text)
+  })
+})
+```
+
 ## Environment Variables Required
 
 ```bash
@@ -519,17 +619,25 @@ DF_SUPERADMIN_USER=your_admin_email@example.com
 1. **Unit Tests**
    - `Accounts.upsert_user_from_oauth/1`
    - `Accounts.user_is_superadmin?/1`
-   - Diagram visibility queries
+   - `Diagrams.list_visible_diagrams/1` - verify filtering by user
+   - `Diagrams.get_diagram_for_viewing/1` - verify any diagram accessible by slug/ID
+   - `Diagrams.can_edit_diagram?/2` - verify edit permissions
 
 2. **Integration Tests**
    - OAuth callback flow
    - Session management
    - Logout flow
+   - Diagram creation with user ownership
+   - User cannot edit other users' diagrams
 
 3. **LiveView Tests**
-   - Unauthenticated access to DiagramStudioLive
-   - Authenticated user sees own diagrams
-   - Users cannot see each other's diagrams
+   - Unauthenticated access to DiagramStudioLive shows only public diagrams
+   - Authenticated user sees own diagrams + public diagrams in Concepts list
+   - Users cannot see each other's private diagrams in Concepts list
+   - **Direct link sharing**: Unauthenticated user can view private diagram via direct link
+   - **Direct link sharing**: Authenticated user can view another user's diagram via direct link
+   - Share button only visible to diagram owner
+   - Copy share link functionality works
 
 ## Migration Path
 
@@ -546,9 +654,12 @@ DF_SUPERADMIN_USER=your_admin_email@example.com
 
 ## Security Considerations
 
-- GitHub OAuth tokens stored encrypted
-- Session regeneration on login
-- Session drop on logout
-- Return path validation to prevent open redirects
-- User isolation in diagram queries
-- Superadmin verification through Application config
+- **GitHub OAuth tokens stored encrypted** in the database
+- **Session regeneration on login** prevents session fixation attacks
+- **Session drop on logout** ensures complete cleanup
+- **Return path validation** to prevent open redirects
+- **User isolation in diagram queries** - users can only see their own diagrams in the Concepts list
+- **Superadmin verification** through Application config (not user-modifiable)
+- **Public diagram viewing via direct link** - Any diagram can be viewed if you have the direct link, but private diagrams won't appear in the Concepts list for unauthorized users. This is intentional for sharing purposes.
+- **Edit permissions** - Only diagram owners and superadmin can edit/delete diagrams
+- **No authentication required for main app** - The DiagramStudioLive route is public but shows filtered content based on authentication status
