@@ -4,6 +4,7 @@ defmodule DiagramForge.Fixtures do
   It consolidates all fixtures into a single module with a consistent interface.
   """
 
+  alias DiagramForge.Accounts.User
   alias DiagramForge.Diagrams.{Concept, Diagram, Document}
   alias DiagramForge.Repo
 
@@ -78,6 +79,22 @@ defmodule DiagramForge.Fixtures do
     |> Diagram.changeset(
       attrs
       |> Enum.into(base_attrs)
+    )
+  end
+
+  def build(:user, attrs) do
+    unique_id = System.unique_integer([:positive])
+
+    %User{}
+    |> User.changeset(
+      attrs
+      |> Enum.into(%{
+        email: "user#{unique_id}@example.com",
+        name: "Test User #{unique_id}",
+        provider: "github",
+        provider_uid: "github_uid_#{unique_id}",
+        provider_token: "test_token_#{unique_id}"
+      })
     )
   end
 end

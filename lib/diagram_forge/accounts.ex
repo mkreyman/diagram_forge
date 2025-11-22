@@ -21,6 +21,7 @@ defmodule DiagramForge.Accounts do
           nil ->
             %User{}
             |> User.changeset(attrs)
+            |> User.sign_in_changeset()
             |> Repo.insert()
 
           user ->
@@ -57,6 +58,8 @@ defmodule DiagramForge.Accounts do
   @doc """
   Gets a user by email.
   """
+  def get_user_by_email(nil), do: nil
+
   def get_user_by_email(email) do
     User
     |> where([u], u.email == ^email)
@@ -68,7 +71,7 @@ defmodule DiagramForge.Accounts do
   """
   def user_is_superadmin?(%User{email: email}) do
     superadmin_email = Application.get_env(:diagram_forge, :superadmin_email)
-    superadmin_email && email == superadmin_email
+    !!(superadmin_email && email == superadmin_email)
   end
 
   def user_is_superadmin?(nil), do: false

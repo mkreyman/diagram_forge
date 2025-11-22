@@ -402,7 +402,7 @@ defmodule DiagramForge.Diagrams do
   def create_diagram_for_user(attrs, user) do
     alias DiagramForge.Accounts
 
-    is_superadmin = user && Accounts.user_is_superadmin?(user)
+    is_superadmin = if user, do: Accounts.user_is_superadmin?(user), else: false
 
     attrs =
       attrs
