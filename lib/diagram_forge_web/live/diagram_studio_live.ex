@@ -55,7 +55,6 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     diagram_id = params["id"]
     page = parse_int(params["page"], 1)
     page_size = parse_int(params["page_size"], 10)
-    document_id = params["document_id"]
     only_with_diagrams = parse_bool(params["only_with_diagrams"], true)
     search_query = params["search_query"] || ""
 
@@ -78,31 +77,12 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         socket
       end
 
-    # Load the selected document if document_id is provided
-    socket =
-      if document_id do
-        document = Diagrams.get_document!(document_id)
-        diagrams = Diagrams.list_diagrams_for_document(document.id)
-
-        # Subscribe to generation progress for this document
-        if connected?(socket) do
-          Phoenix.PubSub.subscribe(DiagramForge.PubSub, "diagram_generation:#{document.id}")
-        end
-
-        socket
-        |> assign(:selected_document, document)
-        |> assign(:diagrams, diagrams)
-      else
-        # When no document is selected, load all diagrams to display in concept expansions
-        diagrams = Diagrams.list_diagrams()
-
-        socket
-        |> assign(:selected_document, nil)
-        |> assign(:diagrams, diagrams)
-      end
+    # Load all diagrams to display in concept expansions
+    diagrams = Diagrams.list_diagrams()
 
     {:noreply,
      socket
+     |> assign(:diagrams, diagrams)
      |> assign(:concepts_page, page)
      |> assign(:concepts_page_size, page_size)
      |> assign(:show_only_with_diagrams, only_with_diagrams)
@@ -111,7 +91,6 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
        :concepts_total,
        count_concepts(
          only_with_diagrams: only_with_diagrams,
-         document_id: document_id,
          search_query: search_query
        )
      )
@@ -121,26 +100,9 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
          page: page,
          page_size: page_size,
          only_with_diagrams: only_with_diagrams,
-         document_id: document_id,
          search_query: search_query
        )
      )}
-  end
-
-  @impl true
-  def handle_event("select_document", %{"id" => id}, socket) do
-    # Use push_patch to update the URL with document_id param
-    # This will trigger handle_params which will load the document and filter concepts
-    {:noreply,
-     socket
-     |> assign(:selected_concepts, MapSet.new())
-     |> assign(:selected_diagram, nil)
-     |> assign(:generated_diagram, nil)
-     |> assign(:generating_concepts, MapSet.new())
-     |> assign(:generation_total, 0)
-     |> assign(:generation_completed, 0)
-     |> assign(:failed_generations, %{})
-     |> push_patch(to: ~p"/?document_id=#{id}")}
   end
 
   @impl true
@@ -376,7 +338,6 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
   def handle_info({:concepts_updated, _document_id}, socket) do
     # Reload concepts with current pagination settings
     only_with_diagrams = socket.assigns.show_only_with_diagrams
-    document_id = if socket.assigns.selected_document, do: socket.assigns.selected_document.id
     search_query = socket.assigns.search_query
 
     concepts =
@@ -384,7 +345,6 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         page: socket.assigns.concepts_page,
         page_size: socket.assigns.concepts_page_size,
         only_with_diagrams: only_with_diagrams,
-        document_id: document_id,
         search_query: search_query
       )
 
@@ -395,7 +355,6 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
        :concepts_total,
        count_concepts(
          only_with_diagrams: only_with_diagrams,
-         document_id: document_id,
          search_query: search_query
        )
      )}
@@ -403,12 +362,8 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   @impl true
   def handle_info({:diagram_created, _diagram_id}, socket) do
-    if socket.assigns.selected_document do
-      diagrams = Diagrams.list_diagrams_for_document(socket.assigns.selected_document.id)
-      {:noreply, assign(socket, :diagrams, diagrams)}
-    else
-      {:noreply, socket}
-    end
+    diagrams = Diagrams.list_diagrams()
+    {:noreply, assign(socket, :diagrams, diagrams)}
   end
 
   @impl true
@@ -421,18 +376,23 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     generating_concepts = MapSet.delete(socket.assigns.generating_concepts, concept_id)
     generation_completed = socket.assigns.generation_completed + 1
 
-    # Refresh diagrams list
-    diagrams =
-      if socket.assigns.selected_document do
-        Diagrams.list_diagrams_for_document(socket.assigns.selected_document.id)
-      else
-        []
-      end
+    # Reload concepts to reflect the new diagram
+    concepts =
+      list_concepts(
+        page: socket.assigns.concepts_page,
+        page_size: socket.assigns.concepts_page_size,
+        only_with_diagrams: socket.assigns.show_only_with_diagrams,
+        search_query: socket.assigns.search_query
+      )
+
+    # Reload all diagrams to show the new diagram in concept expansions
+    diagrams = Diagrams.list_diagrams()
 
     {:noreply,
      socket
      |> assign(:generating_concepts, generating_concepts)
      |> assign(:generation_completed, generation_completed)
+     |> assign(:concepts, concepts)
      |> assign(:diagrams, diagrams)}
   end
 
@@ -509,17 +469,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
               <div class="space-y-0.5 max-h-48 overflow-y-auto">
                 <%= for doc <- @documents do %>
-                  <div
-                    class={[
-                      "px-2 py-1 rounded cursor-pointer transition",
-                      @selected_document && @selected_document.id == doc.id &&
-                        "bg-slate-800 border border-slate-600",
-                      (!@selected_document || @selected_document.id != doc.id) &&
-                        "bg-slate-800/50 hover:bg-slate-800"
-                    ]}
-                    phx-click="select_document"
-                    phx-value-id={doc.id}
-                  >
+                  <div class="px-2 py-1 rounded bg-slate-800/50">
                     <div class="flex items-center justify-between">
                       <span class="text-xs font-medium truncate">{doc.title}</span>
                       <span class={[
@@ -551,14 +501,6 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
               <div class="flex items-center justify-between mb-3">
                 <div class="flex items-center gap-3">
                   <h2 class="text-xl font-semibold">Concepts</h2>
-                  <%= if @selected_document do %>
-                    <.link
-                      patch={~p"/"}
-                      class="text-xs text-slate-400 hover:text-slate-300 transition"
-                    >
-                      (show all)
-                    </.link>
-                  <% end %>
                 </div>
                 <%= if MapSet.size(@selected_concepts) > 0 do %>
                   <button
@@ -1005,36 +947,28 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     Diagrams.count_concepts(opts)
   end
 
-  defp maybe_update_selected_document(socket, document_id) do
-    if socket.assigns.selected_document && socket.assigns.selected_document.id == document_id do
-      document = Diagrams.get_document!(document_id)
-      only_with_diagrams = socket.assigns.show_only_with_diagrams
-      search_query = socket.assigns.search_query
+  defp maybe_update_selected_document(socket, _document_id) do
+    only_with_diagrams = socket.assigns.show_only_with_diagrams
+    search_query = socket.assigns.search_query
 
-      # Reload all concepts since new concepts may have been added, using current pagination
-      concepts =
-        list_concepts(
-          page: socket.assigns.concepts_page,
-          page_size: socket.assigns.concepts_page_size,
-          only_with_diagrams: only_with_diagrams,
-          document_id: document_id,
-          search_query: search_query
-        )
+    # Reload all concepts since new concepts may have been added, using current pagination
+    concepts =
+      list_concepts(
+        page: socket.assigns.concepts_page,
+        page_size: socket.assigns.concepts_page_size,
+        only_with_diagrams: only_with_diagrams,
+        search_query: search_query
+      )
 
-      concepts_total =
-        count_concepts(
-          only_with_diagrams: only_with_diagrams,
-          document_id: document_id,
-          search_query: search_query
-        )
+    concepts_total =
+      count_concepts(
+        only_with_diagrams: only_with_diagrams,
+        search_query: search_query
+      )
 
-      socket
-      |> assign(:selected_document, document)
-      |> assign(:concepts, concepts)
-      |> assign(:concepts_total, concepts_total)
-    else
-      socket
-    end
+    socket
+    |> assign(:concepts, concepts)
+    |> assign(:concepts_total, concepts_total)
   end
 
   defp build_query_params(socket, overrides) do
@@ -1053,22 +987,11 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     ]
 
     # Add search_query if not empty
-    params =
-      if search_query != "" do
-        Keyword.put(params, :search_query, search_query)
-      else
-        params
-      end
-
-    # Add document_id if a document is selected
-    params =
-      if socket.assigns.selected_document do
-        Keyword.put(params, :document_id, socket.assigns.selected_document.id)
-      else
-        params
-      end
-
-    params
+    if search_query != "" do
+      Keyword.put(params, :search_query, search_query)
+    else
+      params
+    end
   end
 
   defp parse_int(nil, default), do: default

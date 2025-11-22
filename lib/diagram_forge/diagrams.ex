@@ -123,18 +123,16 @@ defmodule DiagramForge.Diagrams do
     page = Keyword.get(opts, :page, 1)
     page_size = Keyword.get(opts, :page_size, 10)
     only_with_diagrams = Keyword.get(opts, :only_with_diagrams, false)
-    document_id = Keyword.get(opts, :document_id)
     search_query = Keyword.get(opts, :search_query, "")
     offset = (page - 1) * page_size
 
     base_query = from(c in Concept)
 
-    needs_distinct = document_id != nil or only_with_diagrams or search_query != ""
+    needs_distinct = only_with_diagrams or search_query != ""
 
     query =
       base_query
-      |> maybe_filter_by_document(document_id)
-      |> maybe_filter_by_diagrams(only_with_diagrams, document_id)
+      |> maybe_filter_by_diagrams(only_with_diagrams)
       |> maybe_filter_by_search(search_query)
       |> maybe_add_distinct(needs_distinct)
       |> order_by([c], asc: c.name)
@@ -144,30 +142,12 @@ defmodule DiagramForge.Diagrams do
     Repo.all(query)
   end
 
-  defp maybe_filter_by_document(query, nil), do: query
+  defp maybe_filter_by_diagrams(query, false), do: query
 
-  defp maybe_filter_by_document(query, document_id) do
-    # Filter by either:
-    # 1. Concepts that originated from this document (document_id set), OR
-    # 2. Concepts that have diagrams for this document
-    from c in query,
-      left_join: d in assoc(c, :diagrams),
-      where: c.document_id == ^document_id or d.document_id == ^document_id
-  end
-
-  defp maybe_filter_by_diagrams(query, false, _document_id), do: query
-
-  defp maybe_filter_by_diagrams(query, true, nil) do
-    # No document selected - show concepts with any diagrams
+  defp maybe_filter_by_diagrams(query, true) do
+    # Show concepts with any diagrams
     from c in query,
       join: d in assoc(c, :diagrams)
-  end
-
-  defp maybe_filter_by_diagrams(query, true, document_id) do
-    # Document selected - show concepts with diagrams for this document
-    from c in query,
-      join: d in assoc(c, :diagrams),
-      where: d.document_id == ^document_id
   end
 
   defp maybe_filter_by_search(query, ""), do: query
@@ -188,27 +168,12 @@ defmodule DiagramForge.Diagrams do
   end
 
   # Count-specific filters that don't use distinct (since count uses count(distinct))
-  defp maybe_filter_by_document_for_count(query, nil), do: query
+  defp maybe_filter_by_diagrams_for_count(query, false), do: query
 
-  defp maybe_filter_by_document_for_count(query, document_id) do
-    from c in query,
-      left_join: d in assoc(c, :diagrams),
-      where: c.document_id == ^document_id or d.document_id == ^document_id
-  end
-
-  defp maybe_filter_by_diagrams_for_count(query, false, _document_id), do: query
-
-  defp maybe_filter_by_diagrams_for_count(query, true, nil) do
-    # No document selected - count concepts with any diagrams
+  defp maybe_filter_by_diagrams_for_count(query, true) do
+    # Count concepts with any diagrams
     from c in query,
       join: d in assoc(c, :diagrams)
-  end
-
-  defp maybe_filter_by_diagrams_for_count(query, true, document_id) do
-    # Document selected - count concepts with diagrams for this document
-    from c in query,
-      join: d in assoc(c, :diagrams),
-      where: d.document_id == ^document_id
   end
 
   defp maybe_filter_by_search_for_count(query, ""), do: query
@@ -228,20 +193,17 @@ defmodule DiagramForge.Diagrams do
   ## Options
 
     * `:only_with_diagrams` - Only count concepts that have diagrams (default: false)
-    * `:document_id` - Only count concepts for a specific document (optional)
     * `:search_query` - Search query for filtering by diagram title/summary (optional)
   """
   def count_concepts(opts \\ []) do
     only_with_diagrams = Keyword.get(opts, :only_with_diagrams, false)
-    document_id = Keyword.get(opts, :document_id)
     search_query = Keyword.get(opts, :search_query, "")
 
     base_query = from(c in Concept, select: count(c.id, :distinct))
 
     query =
       base_query
-      |> maybe_filter_by_document_for_count(document_id)
-      |> maybe_filter_by_diagrams_for_count(only_with_diagrams, document_id)
+      |> maybe_filter_by_diagrams_for_count(only_with_diagrams)
       |> maybe_filter_by_search_for_count(search_query)
 
     Repo.one(query) || 0

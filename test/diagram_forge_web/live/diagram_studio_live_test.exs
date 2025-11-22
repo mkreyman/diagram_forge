@@ -24,89 +24,18 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
     test "loads existing documents", %{conn: conn} do
       document = fixture(:document)
 
-      {:ok, view, html} = live(conn, ~p"/")
+      {:ok, _view, html} = live(conn, ~p"/")
 
       assert html =~ document.title
-      assert has_element?(view, "[phx-value-id='#{document.id}']")
-    end
-  end
-
-  describe "select_document" do
-    test "loads concepts and diagrams for selected document", %{conn: conn} do
-      document = fixture(:document)
-      concept = fixture(:concept, document_id: document.id)
-      fixture(:diagram, concept: concept)
-      diagram = fixture(:diagram, document_id: document.id, concept_id: concept.id)
-
-      {:ok, view, _html} = live(conn, ~p"/")
-
-      # Select the document
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
-
-      html = render(view)
-
-      # Verify concepts are loaded
-      assert html =~ concept.name
-
-      # Expand the concept to see diagrams
-      view
-      |> expand_concept(concept.id)
-
-      html = render(view)
-
-      # Verify diagrams are loaded
-      assert html =~ diagram.title
-    end
-
-    test "clears selected concepts when switching documents", %{conn: conn} do
-      doc1 = fixture(:document, title: "Doc 1")
-      doc2 = fixture(:document, title: "Doc 2")
-      concept1 = fixture(:concept, document: doc1)
-      _concept2 = fixture(:concept, document: doc2)
-
-      {:ok, view, _html} = live(conn, ~p"/")
-
-      # Select first document and toggle a concept
-      view
-      |> element("[phx-value-id='#{doc1.id}']")
-      |> render_click()
-
-      show_all_concepts(view)
-
-      view
-      |> expand_concept(concept1.id)
-      |> element("input[phx-value-id='#{concept1.id}']")
-      |> render_click()
-
-      # Verify concept is selected
-      assert view
-             |> element("input[phx-value-id='#{concept1.id}'][checked]")
-             |> has_element?()
-
-      # Switch to second document
-      view
-      |> element("[phx-value-id='#{doc2.id}']")
-      |> render_click()
-
-      # Verify selected concepts were cleared (check for concept selection checkboxes specifically)
-      refute view
-             |> element("input[phx-click='toggle_concept'][checked]")
-             |> has_element?()
     end
   end
 
   describe "toggle_concept" do
     test "adds concept to selection", %{conn: conn} do
-      document = fixture(:document)
-      concept = fixture(:concept, document_id: document.id)
+      _document = fixture(:document)
+      concept = fixture(:concept)
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
 
       show_all_concepts(view)
 
@@ -126,14 +55,10 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
     end
 
     test "removes concept from selection when toggled again", %{conn: conn} do
-      document = fixture(:document)
-      concept = fixture(:concept, document_id: document.id)
+      _document = fixture(:document)
+      concept = fixture(:concept)
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
 
       show_all_concepts(view)
 
@@ -158,15 +83,11 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
     end
 
     test "supports multiple concept selection", %{conn: conn} do
-      document = fixture(:document)
-      concept1 = fixture(:concept, document_id: document.id, name: "Concept 1")
-      concept2 = fixture(:concept, document_id: document.id, name: "Concept 2")
+      _document = fixture(:document)
+      concept1 = fixture(:concept, name: "Concept 1")
+      concept2 = fixture(:concept, name: "Concept 2")
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
 
       show_all_concepts(view)
 
@@ -188,15 +109,11 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
 
   describe "generate_diagrams" do
     test "clears selection after clicking generate", %{conn: conn} do
-      document = fixture(:document)
-      concept1 = fixture(:concept, document_id: document.id)
-      concept2 = fixture(:concept, document_id: document.id)
+      _document = fixture(:document)
+      concept1 = fixture(:concept)
+      concept2 = fixture(:concept)
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
 
       show_all_concepts(view)
 
@@ -235,23 +152,18 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
 
   describe "select_diagram" do
     test "displays selected diagram in preview area", %{conn: conn} do
-      document = fixture(:document)
-      concept = fixture(:concept, document_id: document.id)
+      _document = fixture(:document)
+      concept = fixture(:concept)
       fixture(:diagram, concept: concept)
 
       diagram =
         fixture(:diagram,
-          document_id: document.id,
           concept_id: concept.id,
           title: "Test Diagram",
           diagram_source: "graph TD\nA-->B"
         )
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
 
       show_all_concepts(view)
 
@@ -386,48 +298,18 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
       assert render(view) =~ "Updated Title"
       refute render(view) =~ "Original Title"
     end
-
-    test "updates selected document when it is updated", %{conn: conn} do
-      document = fixture(:document, status: :uploaded)
-
-      {:ok, view, _html} = live(conn, ~p"/")
-
-      # Select the document
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
-
-      # Update document status
-      {:ok, updated_doc} = Diagrams.update_document(document, %{status: :processing})
-
-      Phoenix.PubSub.broadcast(
-        DiagramForge.PubSub,
-        "documents",
-        {:document_updated, updated_doc.id}
-      )
-
-      :timer.sleep(50)
-
-      # Verify status badge shows processing
-      assert has_element?(view, "span", "Processing...")
-    end
   end
 
   describe "handle_info - diagram_created" do
     test "refreshes diagrams when new diagram is created", %{conn: conn} do
-      document = fixture(:document)
-      concept = fixture(:concept, document_id: document.id)
+      _document = fixture(:document)
+      concept = fixture(:concept)
       fixture(:diagram, concept: concept)
 
       {:ok, view, _html} = live(conn, ~p"/")
 
-      # Select document
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
-
       # Create a new diagram
-      diagram = fixture(:diagram, document_id: document.id, concept_id: concept.id)
+      diagram = fixture(:diagram, concept_id: concept.id)
 
       # Broadcast diagram creation
       Phoenix.PubSub.broadcast(
@@ -444,31 +326,6 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
 
       # Verify diagram appears in the list
       assert render(view) =~ diagram.title
-    end
-
-    test "ignores diagram creation when no document is selected", %{conn: conn} do
-      document = fixture(:document)
-      concept = fixture(:concept, document_id: document.id)
-      fixture(:diagram, concept: concept)
-
-      {:ok, view, _html} = live(conn, ~p"/")
-
-      # Don't select any document
-
-      # Create a diagram
-      diagram = fixture(:diagram, document_id: document.id, concept_id: concept.id)
-
-      # Broadcast diagram creation
-      Phoenix.PubSub.broadcast(
-        DiagramForge.PubSub,
-        "diagrams",
-        {:diagram_created, diagram.id}
-      )
-
-      :timer.sleep(50)
-
-      # Verify diagram doesn't appear (since no document is selected)
-      refute render(view) =~ diagram.title
     end
   end
 
@@ -489,15 +346,11 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
 
   describe "generation progress tracking" do
     test "displays progress bar during diagram generation", %{conn: conn} do
-      document = fixture(:document)
-      concept1 = fixture(:concept, document: document)
-      concept2 = fixture(:concept, document: document)
+      _document = fixture(:document)
+      concept1 = fixture(:concept)
+      concept2 = fixture(:concept)
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
 
       show_all_concepts(view)
 
@@ -524,14 +377,10 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
     end
 
     test "updates progress when generation completes", %{conn: conn} do
-      document = fixture(:document)
-      concept = fixture(:concept, document: document)
+      _document = fixture(:document)
+      concept = fixture(:concept)
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
 
       show_all_concepts(view)
 
@@ -548,7 +397,7 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
       assert render(view) =~ "Generating: 0 of 1"
 
       # Create a diagram and simulate completion event
-      diagram = fixture(:diagram, document_id: document.id, concept_id: concept.id)
+      diagram = fixture(:diagram, concept_id: concept.id)
 
       send(
         view.pid,
@@ -557,25 +406,22 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
 
       :timer.sleep(50)
 
-      html = render(view)
-
       # Verify progress bar disappears after all generations complete
-      refute html =~ "Generating:"
+      refute render(view) =~ "Generating:"
 
-      # Verify diagram appears in list
-      assert html =~ diagram.title
+      # Verify the diagram count was updated for the concept
+      # The concept should show it now has 1 diagram
+      html = render(view)
+      assert html =~ concept.name
+      assert html =~ "1 diagrams"
     end
 
     test "handles generation_started event", %{conn: conn} do
-      document = fixture(:document)
-      concept = fixture(:concept, document: document)
+      _document = fixture(:document)
+      concept = fixture(:concept)
       fixture(:diagram, concept: concept)
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
 
       # Simulate generation started
       send(view.pid, {:generation_started, concept.id})
@@ -587,14 +433,10 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
     end
 
     test "handles generation_failed event with error details", %{conn: conn} do
-      document = fixture(:document)
-      concept = fixture(:concept, document: document, name: "Test Concept")
+      _document = fixture(:document)
+      concept = fixture(:concept, name: "Test Concept")
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
 
       show_all_concepts(view)
 
@@ -624,54 +466,14 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
       # Verify concept is no longer in generating_concepts
       refute html =~ "Generating:"
     end
-
-    test "resets progress tracking when switching documents", %{conn: conn} do
-      doc1 = fixture(:document, title: "Doc 1")
-      doc2 = fixture(:document, title: "Doc 2")
-      concept1 = fixture(:concept, document: doc1)
-      _concept2 = fixture(:concept, document: doc2)
-
-      {:ok, view, _html} = live(conn, ~p"/")
-
-      # Select first document and start generation
-      view
-      |> element("[phx-value-id='#{doc1.id}']")
-      |> render_click()
-
-      show_all_concepts(view)
-
-      view
-      |> expand_concept(concept1.id)
-      |> element("input[phx-value-id='#{concept1.id}']")
-      |> render_click()
-
-      view
-      |> element("button", "Generate (1)")
-      |> render_click()
-
-      # Verify progress bar appears
-      assert render(view) =~ "Generating: 0 of 1"
-
-      # Switch to second document
-      view
-      |> element("[phx-value-id='#{doc2.id}']")
-      |> render_click()
-
-      # Verify progress was reset
-      refute render(view) =~ "Generating:"
-    end
   end
 
   describe "error severity badges" do
     test "displays critical severity badge in red", %{conn: conn} do
-      document = fixture(:document)
-      concept = fixture(:concept, document_id: document.id, name: "Failed Concept")
+      _document = fixture(:document)
+      concept = fixture(:concept, name: "Failed Concept")
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
 
       show_all_concepts(view)
 
@@ -700,14 +502,10 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
     end
 
     test "displays high severity badge in orange", %{conn: conn} do
-      document = fixture(:document)
-      concept = fixture(:concept, document_id: document.id)
+      _document = fixture(:document)
+      concept = fixture(:concept)
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
 
       show_all_concepts(view)
 
@@ -736,14 +534,10 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
     end
 
     test "displays medium severity badge in yellow", %{conn: conn} do
-      document = fixture(:document)
-      concept = fixture(:concept, document_id: document.id)
+      _document = fixture(:document)
+      concept = fixture(:concept)
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
 
       show_all_concepts(view)
 
@@ -772,14 +566,10 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
     end
 
     test "displays low severity badge in blue", %{conn: conn} do
-      document = fixture(:document)
-      concept = fixture(:concept, document_id: document.id)
+      _document = fixture(:document)
+      concept = fixture(:concept)
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
 
       show_all_concepts(view)
 
@@ -808,14 +598,10 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
     end
 
     test "clears error badges when generating new diagrams", %{conn: conn} do
-      document = fixture(:document)
-      concept = fixture(:concept, document_id: document.id)
+      _document = fixture(:document)
+      concept = fixture(:concept)
 
       {:ok, view, _html} = live(conn, ~p"/")
-
-      view
-      |> element("[phx-value-id='#{document.id}']")
-      |> render_click()
 
       show_all_concepts(view)
 
@@ -1173,33 +959,6 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
 
       # Should reset to page 1
       assert_patch(view, ~p"/?search_query=Diagram&page=1&page_size=5&only_with_diagrams=true")
-    end
-
-    test "search works with document filter", %{conn: conn} do
-      doc1 = fixture(:document, title: "Doc 1")
-      concept1 = fixture(:concept, name: "Concept 1", document: doc1)
-      fixture(:diagram, concept: concept1, title: "Phoenix Diagram", document: doc1)
-
-      doc2 = fixture(:document, title: "Doc 2")
-      concept2 = fixture(:concept, name: "Concept 2", document: doc2)
-      fixture(:diagram, concept: concept2, title: "Elixir Diagram", document: doc2)
-
-      {:ok, view, _html} = live(conn, ~p"/")
-
-      # Select document 1
-      view
-      |> element("[phx-value-id='#{doc1.id}']")
-      |> render_click()
-
-      # Search for "Phoenix"
-      view
-      |> element("form[phx-change='search_diagrams']")
-      |> render_change(%{"search" => "Phoenix"})
-
-      # Should show only Concept 1
-      html = render(view)
-      assert html =~ "Concept 1"
-      refute html =~ "Concept 2"
     end
 
     test "search updates concept count correctly", %{conn: conn} do
