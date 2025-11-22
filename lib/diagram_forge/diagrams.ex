@@ -302,12 +302,20 @@ defmodule DiagramForge.Diagrams do
   @doc """
   Gets a single diagram.
   """
-  def get_diagram!(id), do: Repo.get!(Diagram, id)
+  def get_diagram!(id) do
+    Diagram
+    |> Repo.get!(id)
+    |> Repo.preload(:document)
+  end
 
   @doc """
   Gets a diagram by slug.
   """
-  def get_diagram_by_slug(slug), do: Repo.get_by(Diagram, slug: slug)
+  def get_diagram_by_slug(slug) do
+    Diagram
+    |> Repo.get_by(slug: slug)
+    |> Repo.preload(:document)
+  end
 
   @doc """
   Saves a generated diagram to the database.

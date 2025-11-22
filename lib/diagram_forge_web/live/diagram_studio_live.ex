@@ -52,11 +52,31 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   @impl true
   def handle_params(params, _url, socket) do
+    diagram_id = params["id"]
     page = parse_int(params["page"], 1)
     page_size = parse_int(params["page_size"], 10)
     document_id = params["document_id"]
     only_with_diagrams = parse_bool(params["only_with_diagrams"], true)
     search_query = params["search_query"] || ""
+
+    # If diagram ID is provided, load the diagram and set it as selected
+    socket =
+      if diagram_id do
+        try do
+          diagram = Diagrams.get_diagram!(diagram_id)
+
+          socket
+          |> assign(:selected_diagram, diagram)
+          |> assign(:generated_diagram, nil)
+        rescue
+          Ecto.NoResultsError ->
+            socket
+            |> put_flash(:error, "Diagram not found")
+            |> push_navigate(to: ~p"/")
+        end
+      else
+        socket
+      end
 
     # Load the selected document if document_id is provided
     socket =
@@ -221,12 +241,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   @impl true
   def handle_event("select_diagram", %{"id" => id}, socket) do
-    diagram = Diagrams.get_diagram!(id)
-
-    {:noreply,
-     socket
-     |> assign(:selected_diagram, diagram)
-     |> assign(:generated_diagram, nil)}
+    {:noreply, push_patch(socket, to: ~p"/d/#{id}")}
   end
 
   @impl true
@@ -806,10 +821,19 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                 <div class="space-y-4">
                   <%!-- Two-column header: Title/Summary + Notes --%>
                   <div class="grid grid-cols-2 gap-6">
-                    <%!-- Left: Title, Summary, Tags --%>
+                    <%!-- Left: Title, Summary, Source, Tags --%>
                     <div>
                       <h2 class="text-2xl font-semibold mb-2">{@selected_diagram.title}</h2>
-                      <p class="text-slate-300">{@selected_diagram.summary}</p>
+                      <p class="text-slate-300 mb-2">{@selected_diagram.summary}</p>
+                      <%!-- Source display --%>
+                      <p class="text-sm text-slate-400 mb-2">
+                        Source:
+                        <%= if @selected_diagram.document_id && @selected_diagram.document do %>
+                          {@selected_diagram.document.title}
+                        <% else %>
+                          User prompt
+                        <% end %>
+                      </p>
                       <div class="flex gap-2 mt-2 items-center justify-between">
                         <div class="flex gap-2 flex-wrap">
                           <span class="text-xs px-2 py-1 bg-slate-800 rounded">

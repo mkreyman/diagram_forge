@@ -18,6 +18,7 @@ defmodule DiagramForgeWeb.Router do
     pipe_through :browser
 
     live "/", DiagramStudioLive
+    live "/d/:id", DiagramStudioLive
     get "/home", PageController, :home
   end
 
