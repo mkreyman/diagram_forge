@@ -960,7 +960,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                       <% end %>
 
                       <%!-- Action buttons row --%>
-                      <div class="flex gap-2 mt-3 justify-end">
+                      <div class="flex gap-2 mt-3">
                         <%!-- Diagram Theme Switcher Button --%>
                         <button
                           phx-click="toggle_diagram_theme"
@@ -984,7 +984,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                             phx-click="copy_share_link"
                             phx-hook="CopyToClipboard"
                             id="copy-share-link-btn"
-                            class="px-3 py-1 text-xs bg-green-800 hover:bg-green-700 text-white rounded transition whitespace-nowrap"
+                            class="px-3 py-1 text-xs bg-cyan-800 hover:bg-cyan-700 text-white rounded transition whitespace-nowrap"
                             title="Copy shareable link to clipboard"
                           >
                             <svg
