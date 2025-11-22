@@ -114,13 +114,8 @@ defmodule DiagramForge.Diagrams.ConceptExtractor do
       )
 
     if existing do
-      # Concept already exists globally, update it with new information
+      # Concept already exists globally, reuse it as-is
       existing
-      |> Concept.changeset(%{
-        short_description: attrs["short_description"],
-        category: attrs["category"]
-      })
-      |> Repo.update!()
     else
       # Create new concept with this document as its origin
       %Concept{}

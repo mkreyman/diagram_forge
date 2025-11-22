@@ -191,7 +191,7 @@ defmodule DiagramForge.Diagrams.ConceptExtractorTest do
       assert concepts == []
     end
 
-    test "updates existing concept instead of creating duplicate" do
+    test "reuses existing concept instead of creating duplicate" do
       document = fixture(:document, raw_text: "Some text.")
 
       # Create an existing concept
@@ -202,7 +202,7 @@ defmodule DiagramForge.Diagrams.ConceptExtractorTest do
           short_description: "Old description"
         )
 
-      # Mock AI to return the same concept with updated attributes
+      # Mock AI to return the same concept (even with different description)
       ai_response = %{
         "concepts" => [
           %{
@@ -220,12 +220,12 @@ defmodule DiagramForge.Diagrams.ConceptExtractorTest do
       concepts = ConceptExtractor.extract_for_document(document, ai_client: MockAIClient)
 
       assert length(concepts) == 1
-      updated_concept = hd(concepts)
+      reused_concept = hd(concepts)
 
       # Should be the same concept (same ID)
-      assert updated_concept.id == existing_concept.id
-      # But with updated attributes
-      assert updated_concept.short_description == "New description"
+      assert reused_concept.id == existing_concept.id
+      # Should keep the original description (not update it)
+      assert reused_concept.short_description == "Old description"
 
       # Verify only one concept exists in database
       saved_concepts = Repo.all(from c in Concept, where: c.document_id == ^document.id)
