@@ -109,33 +109,70 @@ defmodule DiagramForge.Diagrams do
 
     * `:page` - Page number (default: 1)
     * `:page_size` - Number of concepts per page (default: 10)
+    * `:only_with_diagrams` - Only return concepts that have diagrams (default: false)
 
   ## Examples
 
       iex> list_concepts(page: 1, page_size: 20)
       [%Concept{}, ...]
 
-      iex> list_concepts(page: 2, page_size: 50)
+      iex> list_concepts(page: 2, page_size: 50, only_with_diagrams: true)
       [%Concept{}, ...]
   """
   def list_concepts(opts \\ []) do
     page = Keyword.get(opts, :page, 1)
     page_size = Keyword.get(opts, :page_size, 10)
+    only_with_diagrams = Keyword.get(opts, :only_with_diagrams, false)
+    document_id = Keyword.get(opts, :document_id)
     offset = (page - 1) * page_size
 
-    Repo.all(
-      from c in Concept,
-        order_by: [asc: c.name],
-        limit: ^page_size,
-        offset: ^offset
-    )
+    base_query = from(c in Concept)
+
+    query =
+      base_query
+      |> maybe_filter_by_document(document_id)
+      |> maybe_filter_by_diagrams(only_with_diagrams)
+      |> order_by([c], asc: c.name)
+      |> limit(^page_size)
+      |> offset(^offset)
+
+    Repo.all(query)
+  end
+
+  defp maybe_filter_by_document(query, nil), do: query
+
+  defp maybe_filter_by_document(query, document_id) do
+    from c in query, where: c.document_id == ^document_id
+  end
+
+  defp maybe_filter_by_diagrams(query, false), do: query
+
+  defp maybe_filter_by_diagrams(query, true) do
+    from c in query,
+      join: d in assoc(c, :diagrams),
+      distinct: c.id
   end
 
   @doc """
   Counts total number of concepts.
+
+  ## Options
+
+    * `:only_with_diagrams` - Only count concepts that have diagrams (default: false)
+    * `:document_id` - Only count concepts for a specific document (optional)
   """
-  def count_concepts do
-    Repo.aggregate(Concept, :count)
+  def count_concepts(opts \\ []) do
+    only_with_diagrams = Keyword.get(opts, :only_with_diagrams, false)
+    document_id = Keyword.get(opts, :document_id)
+
+    base_query = from(c in Concept)
+
+    query =
+      base_query
+      |> maybe_filter_by_document(document_id)
+      |> maybe_filter_by_diagrams(only_with_diagrams)
+
+    Repo.aggregate(query, :count)
   end
 
   @doc """

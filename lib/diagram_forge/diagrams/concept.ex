@@ -25,5 +25,9 @@ defmodule DiagramForge.Diagrams.Concept do
     concept
     |> cast(attrs, [:document_id, :name, :short_description, :category])
     |> validate_required([:name, :category])
+    |> unique_constraint([:document_id, :name],
+      name: :concepts_document_id_name_index,
+      message: "has already been extracted for this document"
+    )
   end
 end
