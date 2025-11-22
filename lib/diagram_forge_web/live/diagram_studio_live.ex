@@ -459,13 +459,13 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
       <div class="container mx-auto px-4 py-4 flex-1 flex flex-col">
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-1">
           <%!-- Left Sidebar --%>
-          <div class="lg:col-span-1 flex flex-col gap-4">
-            <%!-- Upload Section (Top) --%>
-            <div class="bg-slate-900 rounded-xl p-4">
-              <h2 class="text-lg font-semibold mb-3">Upload Document</h2>
+          <div class="lg:col-span-1 flex flex-col gap-3">
+            <%!-- Documents Section --%>
+            <div class="bg-slate-900 rounded-xl p-3">
+              <h2 class="text-lg font-semibold mb-2">Source Documents</h2>
 
               <form phx-change="validate" phx-submit="save" id="upload-form">
-                <div class="space-y-3">
+                <div class="space-y-2 mb-3">
                   <div
                     class="border-2 border-dashed border-slate-700 rounded-lg p-4 text-center cursor-pointer hover:border-slate-600 transition"
                     phx-drop-target={@uploads.document.ref}
@@ -493,17 +493,12 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                   </button>
                 </div>
               </form>
-            </div>
 
-            <%!-- Documents Section --%>
-            <div class="bg-slate-900 rounded-xl p-4">
-              <h2 class="text-lg font-semibold mb-3">Documents</h2>
-
-              <div class="space-y-2 max-h-48 overflow-y-auto">
+              <div class="space-y-0.5 max-h-48 overflow-y-auto">
                 <%= for doc <- @documents do %>
                   <div
                     class={[
-                      "p-2 rounded cursor-pointer transition",
+                      "px-2 py-1 rounded cursor-pointer transition",
                       @selected_document && @selected_document.id == doc.id &&
                         "bg-slate-800 border border-slate-600",
                       (!@selected_document || @selected_document.id != doc.id) &&
@@ -512,7 +507,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                     phx-click="select_document"
                     phx-value-id={doc.id}
                   >
-                    <div class="flex items-center justify-between mb-1">
+                    <div class="flex items-center justify-between">
                       <span class="text-xs font-medium truncate">{doc.title}</span>
                       <span class={[
                         "text-xs px-1.5 py-0.5 rounded font-medium",
