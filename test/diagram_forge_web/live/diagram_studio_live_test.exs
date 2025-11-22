@@ -199,7 +199,9 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
   end
 
   describe "generate_from_prompt" do
-    test "generates diagram from prompt and displays it", %{conn: conn} do
+    test "generates diagram from prompt and displays it for authenticated user", %{conn: conn} do
+      user = fixture(:user)
+
       ai_response = %{
         "title" => "GenServer Flow",
         "domain" => "elixir",
@@ -214,6 +216,7 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
         Jason.encode!(ai_response)
       end)
 
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
       {:ok, view, _html} = live(conn, ~p"/")
 
       # Update prompt
@@ -226,6 +229,8 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
       |> element("form[phx-submit='generate_from_prompt']")
       |> render_submit()
 
+      # Wait for async generation to complete by rendering again
+      # This processes the {:do_generate_from_prompt, prompt} message
       html = render(view)
 
       # Verify diagram was generated and is displayed
@@ -248,6 +253,53 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
       assert length(diagrams) == 1
       diagram = hd(diagrams)
       assert diagram.title == "GenServer Flow"
+      assert diagram.user_id == user.id
+    end
+
+    test "redirects to OAuth when unauthenticated user tries to save generated diagram",
+         %{conn: conn} do
+      ai_response = %{
+        "title" => "GenServer Flow",
+        "domain" => "elixir",
+        "level" => "intermediate",
+        "tags" => ["otp"],
+        "mermaid" => "flowchart TD\n  A[Start] --> B[GenServer]",
+        "summary" => "Shows GenServer flow",
+        "notes_md" => "# Notes\n\nTest notes"
+      }
+
+      expect(MockAIClient, :chat!, fn _messages, _opts ->
+        Jason.encode!(ai_response)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      # Update prompt
+      view
+      |> element("textarea[name='prompt']")
+      |> render_change(%{"prompt" => "Create a GenServer diagram"})
+
+      # Generate diagram
+      view
+      |> element("form[phx-submit='generate_from_prompt']")
+      |> render_submit()
+
+      # Wait for async generation to complete
+      render(view)
+
+      # Click Save button without being authenticated
+      result =
+        view
+        |> element("button", "💾 Save Diagram")
+        |> render_click()
+
+      # Should redirect to OAuth with pending diagram data
+      assert {:error, {:redirect, %{to: redirect_path}}} = result
+      assert redirect_path =~ "/auth/github?pending_diagram="
+
+      # Diagram should NOT be saved to database when user is not authenticated
+      diagrams = Diagrams.list_diagrams()
+      assert diagrams == [], "Diagram should not be saved when user is unauthenticated"
     end
 
     test "does not create diagram when prompt is empty", %{conn: conn} do

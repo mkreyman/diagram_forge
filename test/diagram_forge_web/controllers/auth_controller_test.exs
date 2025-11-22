@@ -11,6 +11,47 @@ defmodule DiagramForgeWeb.AuthControllerTest do
       # but we can verify the route doesn't error
       assert conn.state == :sent || conn.status in [302, 303]
     end
+
+    test "stores pending diagram in session when pending_diagram param is provided", %{conn: conn} do
+      pending_diagram = %{
+        "title" => "Test Diagram",
+        "slug" => "test-diagram",
+        "diagram_source" => "flowchart TD\n  A --> B",
+        "summary" => "Test summary",
+        "notes_md" => "Test notes",
+        "domain" => "elixir",
+        "tags" => ["test", "diagram"]
+      }
+
+      encoded_diagram = Jason.encode!(pending_diagram)
+
+      conn = get(conn, ~p"/auth/github?pending_diagram=#{encoded_diagram}")
+
+      # Verify the route doesn't error
+      assert conn.state == :sent || conn.status in [302, 303]
+
+      # Verify pending diagram was stored in session
+      assert get_session(conn, :pending_diagram_save) == pending_diagram
+    end
+
+    test "does not store pending diagram when param is not provided", %{conn: conn} do
+      conn = get(conn, ~p"/auth/github")
+
+      # Verify no pending diagram in session
+      assert get_session(conn, :pending_diagram_save) == nil
+    end
+
+    test "handles invalid JSON in pending_diagram param gracefully", %{conn: conn} do
+      invalid_json = "not-valid-json{{"
+
+      conn = get(conn, ~p"/auth/github?pending_diagram=#{invalid_json}")
+
+      # Verify the route doesn't error (graceful degradation)
+      assert conn.state == :sent || conn.status in [302, 303]
+
+      # Verify no pending diagram was stored due to invalid JSON
+      assert get_session(conn, :pending_diagram_save) == nil
+    end
   end
 
   describe "GET /auth/github/callback with successful auth" do
@@ -118,6 +159,102 @@ defmodule DiagramForgeWeb.AuthControllerTest do
 
       assert redirected_to(conn) == "/some-protected-page"
       assert get_session(conn, :return_to) == nil
+    end
+
+    test "saves pending diagram after successful OAuth and redirects to diagram permalink", %{
+      conn: conn
+    } do
+      # Set up pending diagram save in session
+      pending_diagram = %{
+        title: "Test Diagram",
+        slug: "test-diagram",
+        diagram_source: "graph TD\nA-->B",
+        summary: "A test diagram",
+        notes_md: "# Notes\n\nTest notes",
+        domain: "testing",
+        tags: ["test"]
+      }
+
+      auth =
+        build_ueberauth_auth(%{
+          email: "newuser@example.com",
+          name: "New User",
+          uid: "github_999",
+          token: "token_xyz",
+          image: nil
+        })
+
+      conn =
+        conn
+        |> Plug.Test.init_test_session(%{pending_diagram_save: pending_diagram})
+        |> assign(:ueberauth_auth, auth)
+        |> get(~p"/auth/github/callback")
+
+      # Verify diagram was created
+      alias DiagramForge.Diagrams
+      diagrams = Diagrams.list_diagrams()
+      assert length(diagrams) == 1
+      diagram = hd(diagrams)
+      assert diagram.title == "Test Diagram"
+      assert diagram.slug == "test-diagram"
+      assert diagram.diagram_source == "graph TD\nA-->B"
+      assert diagram.summary == "A test diagram"
+      assert diagram.notes_md == "# Notes\n\nTest notes"
+      assert diagram.domain == "testing"
+      assert diagram.tags == ["test"]
+
+      # Verify user was created and diagram is associated
+      user = DiagramForge.Accounts.get_user_by_email("newuser@example.com")
+      assert user != nil
+      assert diagram.user_id == user.id
+
+      # Verify redirect to diagram permalink
+      assert redirected_to(conn) == ~p"/d/#{diagram.id}"
+      assert Phoenix.Flash.get(conn.assigns.flash, :info) == "Diagram saved!"
+
+      # Verify pending_diagram_save was removed from session
+      assert get_session(conn, :pending_diagram_save) == nil
+    end
+
+    test "handles diagram save failure and cleans up session", %{conn: conn} do
+      # Set up pending diagram with invalid data (missing required fields)
+      pending_diagram = %{
+        # Missing title, which is required
+        diagram_source: "graph TD\nA-->B"
+      }
+
+      auth =
+        build_ueberauth_auth(%{
+          email: "newuser@example.com",
+          name: "New User",
+          uid: "github_888",
+          token: "token_xyz",
+          image: nil
+        })
+
+      conn =
+        conn
+        |> Plug.Test.init_test_session(%{pending_diagram_save: pending_diagram})
+        |> assign(:ueberauth_auth, auth)
+        |> get(~p"/auth/github/callback")
+
+      # Verify no diagram was created
+      alias DiagramForge.Diagrams
+      diagrams = Diagrams.list_diagrams()
+      assert diagrams == []
+
+      # Verify user was still created (OAuth succeeded)
+      user = DiagramForge.Accounts.get_user_by_email("newuser@example.com")
+      assert user != nil
+
+      # Verify error message and redirect to home
+      assert redirected_to(conn) == ~p"/"
+
+      assert Phoenix.Flash.get(conn.assigns.flash, :error) ==
+               "Failed to save diagram. Please try again."
+
+      # Verify pending_diagram_save was cleaned up even on failure
+      assert get_session(conn, :pending_diagram_save) == nil
     end
   end
 

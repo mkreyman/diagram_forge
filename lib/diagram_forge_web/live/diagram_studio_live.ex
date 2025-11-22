@@ -236,35 +236,59 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     if prompt == "" do
       {:noreply, put_flash(socket, :error, "Please enter a prompt")}
     else
-      socket = assign(socket, :generating, true)
+      # Set generating state and send async message for actual generation
+      send(self(), {:do_generate_from_prompt, prompt})
 
-      case Diagrams.generate_diagram_from_prompt(prompt, []) do
-        {:ok, diagram} ->
-          {:noreply,
-           socket
-           |> assign(:selected_diagram, diagram)
-           |> assign(:generated_diagram, diagram)
-           |> assign(:prompt, "")
-           |> assign(:generating, false)
-           |> put_flash(:info, "Diagram generated! Click Save to persist it.")}
-
-        {:error, reason} ->
-          {:noreply,
-           socket
-           |> assign(:generating, false)
-           |> put_flash(:error, "Failed to generate diagram: #{inspect(reason)}")}
-      end
+      {:noreply,
+       socket
+       |> assign(:generating, true)
+       |> assign(:prompt, "")}
     end
   end
 
   @impl true
   def handle_event("save_generated_diagram", _params, socket) do
-    case socket.assigns.generated_diagram do
-      nil ->
+    cond do
+      is_nil(socket.assigns[:current_user]) ->
+        diagram = socket.assigns.generated_diagram
+
+        # Extract diagram attributes for session storage
+        attrs = %{
+          title: diagram.title,
+          slug: diagram.slug,
+          diagram_source: diagram.diagram_source,
+          summary: diagram.summary,
+          notes_md: diagram.notes_md,
+          domain: diagram.domain,
+          tags: diagram.tags
+        }
+
+        # Encode attrs as JSON to pass via query parameter
+        pending_json = Jason.encode!(attrs)
+
+        {:noreply,
+         socket
+         |> put_flash(:info, "Sign in to save your diagram")
+         |> redirect(to: "/auth/github?pending_diagram=#{URI.encode_www_form(pending_json)}")}
+
+      is_nil(socket.assigns.generated_diagram) ->
         {:noreply, put_flash(socket, :error, "No diagram to save")}
 
-      diagram ->
-        case Diagrams.save_generated_diagram(diagram) do
+      true ->
+        diagram = socket.assigns.generated_diagram
+
+        # Convert diagram struct to attributes for create_diagram_for_user
+        attrs = %{
+          title: diagram.title,
+          slug: diagram.slug,
+          diagram_source: diagram.diagram_source,
+          summary: diagram.summary,
+          notes_md: diagram.notes_md,
+          domain: diagram.domain,
+          tags: diagram.tags
+        }
+
+        case Diagrams.create_diagram_for_user(attrs, socket.assigns.current_user) do
           {:ok, saved_diagram} ->
             {:noreply,
              socket
@@ -342,6 +366,25 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
      socket
      |> assign(:documents, list_documents())
      |> put_flash(:info, "Uploaded #{length(uploaded_files)} file(s)")}
+  end
+
+  @impl true
+  def handle_info({:do_generate_from_prompt, prompt}, socket) do
+    case Diagrams.generate_diagram_from_prompt(prompt, []) do
+      {:ok, diagram} ->
+        {:noreply,
+         socket
+         |> assign(:selected_diagram, diagram)
+         |> assign(:generated_diagram, diagram)
+         |> assign(:generating, false)
+         |> put_flash(:info, "Diagram generated! Click Save to persist it.")}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:generating, false)
+         |> put_flash(:error, "Failed to generate diagram: #{inspect(reason)}")}
+    end
   end
 
   @impl true
@@ -494,6 +537,54 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
             </div>
           </div>
         </div>
+      </div>
+
+      <%!-- Flash messages for DiagramStudioLive --%>
+      <div class="container mx-auto px-4 pt-4">
+        <%= if msg = Phoenix.Flash.get(@flash, :info) do %>
+          <div
+            id="diagram-studio-flash-info"
+            class="mb-4 p-4 bg-blue-900/30 border border-blue-700/50 rounded-lg text-blue-200 flex items-center gap-3"
+            phx-click={
+              JS.push("lv:clear-flash", value: %{key: :info})
+              |> JS.hide(to: "#diagram-studio-flash-info")
+            }
+          >
+            <svg class="w-5 h-5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fill-rule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
+                clip-rule="evenodd"
+              />
+            </svg>
+            <p class="flex-1">{msg}</p>
+            <button type="button" class="text-blue-400 hover:text-blue-300" aria-label="close">
+              ✕
+            </button>
+          </div>
+        <% end %>
+        <%= if msg = Phoenix.Flash.get(@flash, :error) do %>
+          <div
+            id="diagram-studio-flash-error"
+            class="mb-4 p-4 bg-red-900/30 border border-red-700/50 rounded-lg text-red-200 flex items-center gap-3"
+            phx-click={
+              JS.push("lv:clear-flash", value: %{key: :error})
+              |> JS.hide(to: "#diagram-studio-flash-error")
+            }
+          >
+            <svg class="w-5 h-5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fill-rule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                clip-rule="evenodd"
+              />
+            </svg>
+            <p class="flex-1">{msg}</p>
+            <button type="button" class="text-red-400 hover:text-red-300" aria-label="close">
+              ✕
+            </button>
+          </div>
+        <% end %>
       </div>
 
       <div class="container mx-auto px-4 py-4 flex-1 flex flex-col">
