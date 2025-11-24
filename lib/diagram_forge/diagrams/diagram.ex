@@ -4,6 +4,11 @@ defmodule DiagramForge.Diagrams.Diagram do
 
   Diagrams are LLM-generated visual representations of technical concepts,
   stored in Mermaid format with supporting metadata.
+
+  ## Organization
+
+  Diagrams are organized using tags. Users can create saved filters to
+  quickly view diagrams matching specific tag combinations.
   """
 
   use Ecto.Schema
@@ -13,14 +18,12 @@ defmodule DiagramForge.Diagrams.Diagram do
   @foreign_key_type :binary_id
 
   schema "diagrams" do
-    belongs_to :concept, DiagramForge.Diagrams.Concept
     belongs_to :document, DiagramForge.Diagrams.Document
     belongs_to :user, DiagramForge.Accounts.User
 
     field :slug, :string
     field :title, :string
 
-    field :domain, :string
     field :tags, {:array, :string}, default: []
 
     field :format, Ecto.Enum, values: [:mermaid, :plantuml], default: :mermaid
@@ -35,12 +38,10 @@ defmodule DiagramForge.Diagrams.Diagram do
   def changeset(diagram, attrs) do
     diagram
     |> cast(attrs, [
-      :concept_id,
       :document_id,
       :user_id,
       :slug,
       :title,
-      :domain,
       :tags,
       :format,
       :diagram_source,

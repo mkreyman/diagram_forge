@@ -19,6 +19,7 @@ defmodule DiagramForge.Accounts.User do
     field :last_sign_in_at, :utc_datetime
 
     has_many :diagrams, DiagramForge.Diagrams.Diagram
+    has_many :saved_filters, DiagramForge.Diagrams.SavedFilter, foreign_key: :user_id
 
     timestamps()
   end

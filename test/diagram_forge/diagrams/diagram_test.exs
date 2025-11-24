@@ -35,13 +35,12 @@ defmodule DiagramForge.Diagrams.DiagramTest do
       end
     end
 
-    test "optionally belongs to a concept" do
-      document = fixture(:document)
-      concept = fixture(:concept, document: document)
-      diagram = fixture(:diagram, concept: concept)
+    test "optionally belongs to a user" do
+      user = fixture(:user)
+      diagram = fixture(:diagram, user: user)
 
-      loaded = Repo.preload(diagram, :concept)
-      assert loaded.concept.id == concept.id
+      loaded = Repo.preload(diagram, :user)
+      assert loaded.user.id == user.id
     end
 
     test "optionally belongs to a document" do
@@ -53,12 +52,14 @@ defmodule DiagramForge.Diagrams.DiagramTest do
     end
 
     test "creates diagram with all fields" do
+      user = fixture(:user)
+
       changeset =
         build(:diagram,
+          user: user,
           title: "GenServer Flow",
           slug: "genserver-flow",
-          domain: "elixir",
-          tags: ["otp", "concurrency"],
+          tags: ["otp", "concurrency", "elixir"],
           format: :mermaid,
           diagram_source: "flowchart TD\n  A --> B",
           summary: "Shows GenServer message flow",
@@ -66,10 +67,10 @@ defmodule DiagramForge.Diagrams.DiagramTest do
         )
 
       assert {:ok, diagram} = Repo.insert(changeset)
+      assert diagram.user_id == user.id
       assert diagram.title == "GenServer Flow"
       assert diagram.slug == "genserver-flow"
-      assert diagram.domain == "elixir"
-      assert diagram.tags == ["otp", "concurrency"]
+      assert diagram.tags == ["otp", "concurrency", "elixir"]
       assert diagram.format == :mermaid
       assert diagram.diagram_source == "flowchart TD\n  A --> B"
       assert diagram.summary == "Shows GenServer message flow"

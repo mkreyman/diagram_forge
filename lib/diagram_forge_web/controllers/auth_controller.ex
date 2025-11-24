@@ -84,13 +84,25 @@ defmodule DiagramForgeWeb.AuthController do
     # Convert string keys to atom keys for Ecto compatibility
     atomized_attrs = atomize_diagram_keys(diagram_attrs)
 
-    case Diagrams.create_diagram_for_user(atomized_attrs, user) do
-      {:ok, diagram} ->
+    # Create a diagram struct for saving
+    # In the future when we have user_diagrams join table, we'll use create_diagram_for_user
+    diagram = %Diagrams.Diagram{
+      user_id: user.id,
+      title: atomized_attrs.title,
+      slug: atomized_attrs.slug,
+      diagram_source: atomized_attrs.diagram_source,
+      summary: atomized_attrs.summary,
+      notes_md: atomized_attrs.notes_md,
+      tags: atomized_attrs.tags || []
+    }
+
+    case Diagrams.save_generated_diagram(diagram) do
+      {:ok, saved_diagram} ->
         conn
         |> delete_session(:pending_diagram_save)
         |> delete_session(:return_to)
         |> put_flash(:info, "Diagram saved!")
-        |> redirect(to: ~p"/d/#{diagram.id}")
+        |> redirect(to: ~p"/d/#{saved_diagram.id}")
 
       {:error, _changeset} ->
         conn
@@ -104,13 +116,11 @@ defmodule DiagramForgeWeb.AuthController do
   # Safely convert known diagram string keys to atoms
   defp atomize_diagram_keys(attrs) when is_map(attrs) do
     %{
-      concept_id: attrs["concept_id"],
       title: attrs["title"],
       slug: attrs["slug"],
       diagram_source: attrs["diagram_source"],
       summary: attrs["summary"],
       notes_md: attrs["notes_md"],
-      domain: attrs["domain"],
       tags: attrs["tags"]
     }
   end

@@ -24,7 +24,6 @@ defmodule DiagramForge.Diagrams.Document do
     field :error_message, :string
     field :completed_at, :utc_datetime
 
-    has_many :concepts, DiagramForge.Diagrams.Concept
     has_many :diagrams, DiagramForge.Diagrams.Diagram
 
     timestamps()

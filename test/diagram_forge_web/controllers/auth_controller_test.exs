@@ -19,8 +19,7 @@ defmodule DiagramForgeWeb.AuthControllerTest do
         "diagram_source" => "flowchart TD\n  A --> B",
         "summary" => "Test summary",
         "notes_md" => "Test notes",
-        "domain" => "elixir",
-        "tags" => ["test", "diagram"]
+        "tags" => ["test", "diagram", "elixir"]
       }
 
       encoded_diagram = Jason.encode!(pending_diagram)
@@ -171,8 +170,7 @@ defmodule DiagramForgeWeb.AuthControllerTest do
         "diagram_source" => "graph TD\nA-->B",
         "summary" => "A test diagram",
         "notes_md" => "# Notes\n\nTest notes",
-        "domain" => "testing",
-        "tags" => ["test"]
+        "tags" => ["test", "oauth"]
       }
 
       auth =
@@ -200,8 +198,7 @@ defmodule DiagramForgeWeb.AuthControllerTest do
       assert diagram.diagram_source == "graph TD\nA-->B"
       assert diagram.summary == "A test diagram"
       assert diagram.notes_md == "# Notes\n\nTest notes"
-      assert diagram.domain == "testing"
-      assert diagram.tags == ["test"]
+      assert diagram.tags == ["test", "oauth"]
 
       # Verify user was created and diagram is associated
       user = DiagramForge.Accounts.get_user_by_email("newuser@example.com")

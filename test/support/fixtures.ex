@@ -5,7 +5,7 @@ defmodule DiagramForge.Fixtures do
   """
 
   alias DiagramForge.Accounts.User
-  alias DiagramForge.Diagrams.{Concept, Diagram, Document}
+  alias DiagramForge.Diagrams.{Diagram, Document, SavedFilter}
   alias DiagramForge.Repo
 
   @doc """
@@ -35,29 +35,13 @@ defmodule DiagramForge.Fixtures do
     )
   end
 
-  def build(:concept, attrs) do
-    document = attrs[:document] || fixture(:document)
-
-    %Concept{}
-    |> Concept.changeset(
-      attrs
-      |> Enum.into(%{
-        document_id: document.id,
-        name: "Test Concept #{System.unique_integer([:positive])}",
-        short_description: "A test concept for testing purposes",
-        category: "elixir"
-      })
-    )
-  end
-
   def build(:diagram, attrs) do
-    concept = attrs[:concept]
+    user = attrs[:user]
     document = attrs[:document]
 
     base_attrs = %{
       slug: "test-diagram-#{System.unique_integer([:positive])}",
       title: "Test Diagram #{System.unique_integer([:positive])}",
-      domain: "elixir",
       tags: ["test"],
       format: :mermaid,
       diagram_source: "flowchart TD\n  A[Start] --> B[End]",
@@ -65,14 +49,10 @@ defmodule DiagramForge.Fixtures do
     }
 
     base_attrs =
-      if concept do
-        Map.merge(base_attrs, %{concept_id: concept.id, document_id: concept.document_id})
-      else
-        if document do
-          Map.put(base_attrs, :document_id, document.id)
-        else
-          base_attrs
-        end
+      cond do
+        user -> Map.put(base_attrs, :user_id, user.id)
+        document -> Map.put(base_attrs, :document_id, document.id)
+        true -> base_attrs
       end
 
     %Diagram{}
@@ -80,6 +60,28 @@ defmodule DiagramForge.Fixtures do
       attrs
       |> Enum.into(base_attrs)
     )
+  end
+
+  def build(:saved_filter, attrs) do
+    user = attrs[:user] || fixture(:user)
+
+    %SavedFilter{}
+    |> SavedFilter.changeset(
+      attrs
+      |> Enum.into(%{
+        user_id: user.id,
+        name: "Test Filter #{System.unique_integer([:positive])}",
+        tag_filter: ["elixir", "test"],
+        is_pinned: true,
+        sort_order: 0
+      })
+    )
+  end
+
+  def build(:diagram_with_tags, attrs) do
+    default_tags = ["elixir", "phoenix", "test"]
+    attrs = Map.put_new(attrs, :tags, default_tags)
+    build(:diagram, attrs)
   end
 
   def build(:user, attrs) do

@@ -3,14 +3,14 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
   Main LiveView for the Diagram Studio.
 
   Two-column layout:
-  - Left sidebar: Collapsible concepts tree with diagrams, upload, and documents
+  - Left sidebar: Tag filtering, saved filters, and diagrams list
   - Right main area: Large diagram display and generate from prompt
   """
 
   use DiagramForgeWeb, :live_view
 
   alias DiagramForge.Diagrams
-  alias DiagramForge.Diagrams.Workers.{GenerateDiagramJob, ProcessDocumentJob}
+  alias DiagramForge.Diagrams.Workers.ProcessDocumentJob
 
   on_mount DiagramForgeWeb.UserLive
 
@@ -23,30 +23,30 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
       schedule_document_refresh()
     end
 
+    current_user = socket.assigns[:current_user]
+
     {:ok,
      socket
+     |> assign(:current_user, current_user)
      |> assign(:documents, list_documents())
      |> assign(:selected_document, nil)
-     |> assign(:concepts_page, 1)
-     |> assign(:concepts_page_size, 10)
-     |> assign(:concepts_total, 0)
-     |> assign(:concepts, [])
-     |> assign(:category_filter, nil)
-     |> assign(:search_query, "")
-     |> assign(:show_only_with_diagrams, true)
-     |> assign(:selected_concepts, MapSet.new())
-     |> assign(:expanded_concepts, MapSet.new())
+     |> assign(:active_tag_filter, [])
+     |> assign(:available_tags, [])
+     |> assign(:tag_counts, %{})
+     |> assign(:pinned_filters, [])
      |> assign(:diagrams, [])
      |> assign(:selected_diagram, nil)
      |> assign(:generated_diagram, nil)
      |> assign(:prompt, "")
      |> assign(:uploaded_files, [])
      |> assign(:generating, false)
-     |> assign(:generating_concepts, MapSet.new())
-     |> assign(:generation_total, 0)
-     |> assign(:generation_completed, 0)
-     |> assign(:failed_generations, %{})
      |> assign(:diagram_theme, "dark")
+     |> assign(:show_save_filter_modal, false)
+     |> assign(:editing_filter, nil)
+     |> assign(:new_tag_input, "")
+     |> load_diagrams()
+     |> load_tags()
+     |> load_filters()
      |> allow_upload(:document,
        accept: ~w(.pdf .md .markdown),
        max_entries: 1,
@@ -57,17 +57,12 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
   @impl true
   def handle_params(params, _url, socket) do
     diagram_id = params["id"]
-    page = parse_int(params["page"], 1)
-    page_size = parse_int(params["page_size"], 10)
-    only_with_diagrams = parse_bool(params["only_with_diagrams"], true)
-    search_query = params["search_query"] || ""
 
     # If diagram ID is provided, load the diagram and set it as selected
-    # Note: get_diagram_for_viewing allows public access via direct link
     socket =
       if diagram_id do
         try do
-          diagram = Diagrams.get_diagram_for_viewing(diagram_id)
+          diagram = Diagrams.get_diagram!(diagram_id)
 
           socket
           |> assign(:selected_diagram, diagram)
@@ -82,96 +77,198 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         socket
       end
 
-    # Load diagrams visible to current user (filtered by ownership)
-    diagrams = Diagrams.list_visible_diagrams(socket.assigns[:current_user])
+    {:noreply, socket}
+  end
 
-    {:noreply,
-     socket
-     |> assign(:diagrams, diagrams)
-     |> assign(:concepts_page, page)
-     |> assign(:concepts_page_size, page_size)
-     |> assign(:show_only_with_diagrams, only_with_diagrams)
-     |> assign(:search_query, search_query)
-     |> assign(
-       :concepts_total,
-       count_concepts(
-         only_with_diagrams: only_with_diagrams,
-         search_query: search_query
-       )
-     )
-     |> assign(
-       :concepts,
-       list_concepts(
-         page: page,
-         page_size: page_size,
-         only_with_diagrams: only_with_diagrams,
-         search_query: search_query
-       )
-     )}
+  # Tag filtering events
+
+  @impl true
+  def handle_event("add_tag_to_filter", %{"tag" => tag}, socket) do
+    current_filter = socket.assigns.active_tag_filter
+    new_filter = (current_filter ++ [tag]) |> Enum.uniq()
+
+    socket =
+      socket
+      |> assign(:active_tag_filter, new_filter)
+      |> assign(:new_tag_input, "")
+      |> load_diagrams()
+
+    {:noreply, socket}
   end
 
   @impl true
-  def handle_event("toggle_concept", %{"id" => id}, socket) do
-    selected = socket.assigns.selected_concepts
+  def handle_event("remove_tag_from_filter", %{"tag" => tag}, socket) do
+    current_filter = socket.assigns.active_tag_filter
+    new_filter = current_filter -- [tag]
 
-    selected =
-      if MapSet.member?(selected, id) do
-        MapSet.delete(selected, id)
-      else
-        MapSet.put(selected, id)
-      end
+    socket =
+      socket
+      |> assign(:active_tag_filter, new_filter)
+      |> load_diagrams()
 
-    {:noreply, assign(socket, :selected_concepts, selected)}
+    {:noreply, socket}
   end
 
   @impl true
-  def handle_event("toggle_concept_expand", %{"id" => id}, socket) do
-    expanded = socket.assigns.expanded_concepts
+  def handle_event("clear_filter", _params, socket) do
+    socket =
+      socket
+      |> assign(:active_tag_filter, [])
+      |> load_diagrams()
 
-    expanded =
-      if MapSet.member?(expanded, id) do
-        MapSet.delete(expanded, id)
-      else
-        MapSet.put(expanded, id)
-      end
-
-    {:noreply, assign(socket, :expanded_concepts, expanded)}
+    {:noreply, socket}
   end
 
   @impl true
-  def handle_event("filter_category", %{"category" => category}, socket) do
-    new_filter = if socket.assigns.category_filter == category, do: nil, else: category
-    {:noreply, assign(socket, :category_filter, new_filter)}
+  def handle_event("update_tag_input", %{"tag" => tag}, socket) do
+    {:noreply, assign(socket, :new_tag_input, tag)}
+  end
+
+  # Saved filter events
+
+  @impl true
+  def handle_event("apply_saved_filter", %{"id" => filter_id}, socket) do
+    filter = Diagrams.get_saved_filter!(filter_id)
+
+    socket =
+      socket
+      |> assign(:active_tag_filter, filter.tag_filter)
+      |> load_diagrams()
+
+    {:noreply, socket}
   end
 
   @impl true
-  def handle_event("toggle_show_only_with_diagrams", _params, socket) do
-    new_value = !socket.assigns.show_only_with_diagrams
-    params = build_query_params(socket, only_with_diagrams: new_value)
-    {:noreply, push_patch(socket, to: ~p"/?#{params}")}
+  def handle_event("show_save_filter_modal", _params, socket) do
+    {:noreply, assign(socket, :show_save_filter_modal, true)}
   end
 
   @impl true
-  def handle_event("search_diagrams", %{"search" => search_query}, socket) do
-    # Only search if at least 3 characters, otherwise clear search
-    search_query = String.trim(search_query)
-
-    search_query =
-      if String.length(search_query) >= 3 do
-        search_query
-      else
-        ""
-      end
-
-    params = build_query_params(socket, page: 1, search_query: search_query)
-    {:noreply, push_patch(socket, to: ~p"/?#{params}")}
+  def handle_event("hide_save_filter_modal", _params, socket) do
+    {:noreply, assign(socket, :show_save_filter_modal, false)}
   end
 
   @impl true
-  def handle_event("clear_search", _params, socket) do
-    params = build_query_params(socket, search_query: "")
-    {:noreply, push_patch(socket, to: ~p"/?#{params}")}
+  def handle_event("save_current_filter", %{"name" => name}, socket) do
+    user_id = socket.assigns.current_user.id
+    tag_filter = socket.assigns.active_tag_filter
+
+    case Diagrams.create_saved_filter(%{name: name, tag_filter: tag_filter}, user_id) do
+      {:ok, _filter} ->
+        socket =
+          socket
+          |> assign(:show_save_filter_modal, false)
+          |> load_filters()
+          |> put_flash(:info, "Filter saved successfully")
+
+        {:noreply, socket}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, "Failed to save filter")}
+    end
   end
+
+  @impl true
+  def handle_event("delete_filter", %{"id" => id}, socket) do
+    filter = Diagrams.get_saved_filter!(id)
+    user_id = socket.assigns.current_user.id
+
+    case Diagrams.delete_saved_filter(filter, user_id) do
+      {:ok, _} ->
+        socket =
+          socket
+          |> load_filters()
+          |> put_flash(:info, "Filter deleted successfully")
+
+        {:noreply, socket}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "Unauthorized")}
+    end
+  end
+
+  @impl true
+  def handle_event("toggle_filter_pin", %{"id" => id}, socket) do
+    filter = Diagrams.get_saved_filter!(id)
+    user_id = socket.assigns.current_user.id
+
+    case Diagrams.update_saved_filter(filter, %{is_pinned: !filter.is_pinned}, user_id) do
+      {:ok, _} ->
+        socket =
+          socket
+          |> load_filters()
+
+        {:noreply, socket}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "Unauthorized")}
+    end
+  end
+
+  # Tag management on diagrams
+
+  @impl true
+  def handle_event("add_tags_to_diagram", %{"id" => id, "tags" => tags_str}, socket) do
+    diagram = Diagrams.get_diagram!(id)
+    user_id = socket.assigns.current_user.id
+    tags = String.split(tags_str, ",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+
+    case Diagrams.add_tags(diagram, tags, user_id) do
+      {:ok, _} ->
+        socket =
+          socket
+          |> load_diagrams()
+          |> load_tags()
+          |> put_flash(:info, "Tags added successfully")
+
+        {:noreply, socket}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to add tags")}
+    end
+  end
+
+  @impl true
+  def handle_event("remove_tag_from_diagram", %{"id" => id, "tag" => tag}, socket) do
+    diagram = Diagrams.get_diagram!(id)
+    user_id = socket.assigns.current_user.id
+
+    case Diagrams.remove_tags(diagram, [tag], user_id) do
+      {:ok, _} ->
+        socket =
+          socket
+          |> load_diagrams()
+          |> load_tags()
+          |> put_flash(:info, "Tag removed successfully")
+
+        {:noreply, socket}
+
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, "Failed to remove tag")}
+    end
+  end
+
+  # Fork and bookmark (no concept selection needed)
+
+  @impl true
+  def handle_event("fork_diagram", %{"id" => id}, socket) do
+    user_id = socket.assigns.current_user.id
+
+    case Diagrams.fork_diagram(id, user_id) do
+      {:ok, _forked} ->
+        socket =
+          socket
+          |> load_diagrams()
+          |> put_flash(:info, "Diagram forked successfully")
+
+        {:noreply, socket}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to fork diagram")}
+    end
+  end
+
+  # Other event handlers
 
   @impl true
   def handle_event("toggle_diagram_theme", _params, socket) do
@@ -186,37 +283,9 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         {:noreply, put_flash(socket, :error, "No diagram selected")}
 
       diagram ->
-        # Build the full URL for the diagram
         url = url(~p"/d/#{diagram.id}")
         {:noreply, push_event(socket, "copy-to-clipboard", %{text: url})}
     end
-  end
-
-  @impl true
-  def handle_event("generate_diagrams", _params, socket) do
-    selected_concept_ids = socket.assigns.selected_concepts
-
-    # Get document_id from each concept since concepts can be from different documents
-    selected_concept_ids
-    |> Enum.each(fn concept_id ->
-      concept = Diagrams.get_concept!(concept_id)
-
-      %{"concept_id" => concept_id, "document_id" => concept.document_id}
-      |> GenerateDiagramJob.new()
-      |> Oban.insert()
-    end)
-
-    {:noreply,
-     socket
-     |> put_flash(
-       :info,
-       "Generating #{MapSet.size(selected_concept_ids)} diagram(s)..."
-     )
-     |> assign(:selected_concepts, MapSet.new())
-     |> assign(:generating_concepts, selected_concept_ids)
-     |> assign(:generation_total, MapSet.size(selected_concept_ids))
-     |> assign(:generation_completed, 0)
-     |> assign(:failed_generations, %{})}
   end
 
   @impl true
@@ -254,13 +323,11 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
         # Extract diagram attributes for session storage
         attrs = %{
-          concept_id: diagram.concept_id,
           title: diagram.title,
           slug: diagram.slug,
           diagram_source: diagram.diagram_source,
           summary: diagram.summary,
           notes_md: diagram.notes_md,
-          domain: diagram.domain,
           tags: diagram.tags
         }
 
@@ -277,26 +344,20 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
       true ->
         diagram = socket.assigns.generated_diagram
+        current_user = socket.assigns.current_user
 
-        # Convert diagram struct to attributes for create_diagram_for_user
-        attrs = %{
-          concept_id: diagram.concept_id,
-          title: diagram.title,
-          slug: diagram.slug,
-          diagram_source: diagram.diagram_source,
-          summary: diagram.summary,
-          notes_md: diagram.notes_md,
-          domain: diagram.domain,
-          tags: diagram.tags
-        }
+        # Add user_id to the diagram before saving
+        diagram_with_user = Map.put(diagram, :user_id, current_user.id)
 
-        case Diagrams.create_diagram_for_user(attrs, socket.assigns.current_user) do
+        # For now, just insert the diagram directly
+        # In the future, this will use create_diagram_for_user when user_diagrams join table exists
+        case Diagrams.save_generated_diagram(diagram_with_user) do
           {:ok, saved_diagram} ->
             {:noreply,
              socket
              |> assign(:generated_diagram, nil)
              |> assign(:selected_diagram, saved_diagram)
-             |> assign(:diagrams, [saved_diagram | socket.assigns.diagrams])
+             |> load_diagrams()
              |> put_flash(:info, "Diagram saved successfully!")}
 
           {:error, _changeset} ->
@@ -312,19 +373,6 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
      |> assign(:generated_diagram, nil)
      |> assign(:selected_diagram, nil)
      |> put_flash(:info, "Diagram discarded")}
-  end
-
-  @impl true
-  def handle_event("concepts_change_page", %{"page" => page}, socket) do
-    params = build_query_params(socket, page: page)
-    {:noreply, push_patch(socket, to: ~p"/?#{params}")}
-  end
-
-  @impl true
-  def handle_event("concepts_change_page_size", %{"page_size" => page_size}, socket) do
-    # Reset to page 1 when changing page size
-    params = build_query_params(socket, page: 1, page_size: page_size)
-    {:noreply, push_patch(socket, to: ~p"/?#{params}")}
   end
 
   @impl true
@@ -370,6 +418,8 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
      |> put_flash(:info, "Uploaded #{length(uploaded_files)} file(s)")}
   end
 
+  # PubSub and async message handlers
+
   @impl true
   def handle_info({:do_generate_from_prompt, prompt}, socket) do
     case Diagrams.generate_diagram_from_prompt(prompt, []) do
@@ -390,94 +440,16 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
   end
 
   @impl true
-  def handle_info({:document_updated, document_id}, socket) do
-    {:noreply,
-     socket
-     |> assign(:documents, list_documents())
-     |> maybe_update_selected_document(document_id)}
-  end
-
-  @impl true
-  def handle_info({:concepts_updated, _document_id}, socket) do
-    # Reload concepts with current pagination settings
-    only_with_diagrams = socket.assigns.show_only_with_diagrams
-    search_query = socket.assigns.search_query
-
-    concepts =
-      list_concepts(
-        page: socket.assigns.concepts_page,
-        page_size: socket.assigns.concepts_page_size,
-        only_with_diagrams: only_with_diagrams,
-        search_query: search_query
-      )
-
-    {:noreply,
-     socket
-     |> assign(:concepts, concepts)
-     |> assign(
-       :concepts_total,
-       count_concepts(
-         only_with_diagrams: only_with_diagrams,
-         search_query: search_query
-       )
-     )}
+  def handle_info({:document_updated, _document_id}, socket) do
+    {:noreply, assign(socket, :documents, list_documents())}
   end
 
   @impl true
   def handle_info({:diagram_created, _diagram_id}, socket) do
-    diagrams = Diagrams.list_visible_diagrams(socket.assigns[:current_user])
-    {:noreply, assign(socket, :diagrams, diagrams)}
+    {:noreply, socket |> load_diagrams()}
   end
 
   @impl true
-  def handle_info({:generation_started, _concept_id}, socket) do
-    {:noreply, socket}
-  end
-
-  @impl true
-  def handle_info({:generation_completed, concept_id, _diagram_id}, socket) do
-    generating_concepts = MapSet.delete(socket.assigns.generating_concepts, concept_id)
-    generation_completed = socket.assigns.generation_completed + 1
-
-    # Reload concepts to reflect the new diagram
-    concepts =
-      list_concepts(
-        page: socket.assigns.concepts_page,
-        page_size: socket.assigns.concepts_page_size,
-        only_with_diagrams: socket.assigns.show_only_with_diagrams,
-        search_query: socket.assigns.search_query
-      )
-
-    # Reload diagrams visible to current user
-    diagrams = Diagrams.list_visible_diagrams(socket.assigns[:current_user])
-
-    {:noreply,
-     socket
-     |> assign(:generating_concepts, generating_concepts)
-     |> assign(:generation_completed, generation_completed)
-     |> assign(:concepts, concepts)
-     |> assign(:diagrams, diagrams)}
-  end
-
-  @impl true
-  def handle_info({:generation_failed, concept_id, reason, category, severity}, socket) do
-    generating_concepts = MapSet.delete(socket.assigns.generating_concepts, concept_id)
-
-    # Store the error details
-    failed_generations =
-      Map.put(socket.assigns.failed_generations, concept_id, %{
-        reason: reason,
-        category: category,
-        severity: severity
-      })
-
-    {:noreply,
-     socket
-     |> assign(:generating_concepts, generating_concepts)
-     |> assign(:failed_generations, failed_generations)
-     |> put_flash(:error, "Failed to generate diagram: #{inspect(reason)}")}
-  end
-
   def handle_info(:refresh_documents, socket) do
     # Reload documents to auto-hide completed documents after 5 minutes
     documents = list_documents()
@@ -486,6 +458,58 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     schedule_document_refresh()
 
     {:noreply, assign(socket, :documents, documents)}
+  end
+
+  # Private helper functions
+
+  defp load_diagrams(socket) do
+    user_id = socket.assigns.current_user && socket.assigns.current_user.id
+    tag_filter = socket.assigns[:active_tag_filter] || []
+
+    diagrams = if user_id, do: Diagrams.list_diagrams_by_tags(user_id, tag_filter, :all), else: []
+
+    assign(socket, :diagrams, diagrams)
+  end
+
+  defp load_tags(socket) do
+    user_id = socket.assigns.current_user && socket.assigns.current_user.id
+
+    if user_id do
+      socket
+      |> assign(:available_tags, Diagrams.list_available_tags(user_id))
+      |> assign(:tag_counts, Diagrams.get_tag_counts(user_id))
+    else
+      socket
+    end
+  end
+
+  defp load_filters(socket) do
+    user_id = socket.assigns.current_user && socket.assigns.current_user.id
+
+    if user_id do
+      assign(socket, :pinned_filters, Diagrams.list_pinned_filters(user_id))
+    else
+      socket
+    end
+  end
+
+  defp list_documents do
+    Diagrams.list_documents()
+  end
+
+  defp schedule_document_refresh do
+    # Refresh documents every minute to auto-hide completed documents after 5 minutes
+    Process.send_after(self(), :refresh_documents, 60_000)
+  end
+
+  defp format_status(status) do
+    case status do
+      :uploaded -> "Uploaded"
+      :processing -> "Processing..."
+      :ready -> "Ready"
+      :error -> "Error"
+      _ -> to_string(status)
+    end
   end
 
   @impl true
@@ -541,7 +565,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         </div>
       </div>
 
-      <%!-- Flash messages for DiagramStudioLive --%>
+      <%!-- Flash messages --%>
       <div class="container mx-auto px-4 pt-4">
         <%= if msg = Phoenix.Flash.get(@flash, :info) do %>
           <div
@@ -635,7 +659,8 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                       <span class={[
                         "text-xs px-1.5 py-0.5 rounded font-medium",
                         doc.status == :ready && "bg-green-900/50 text-green-300",
-                        doc.status == :processing && "bg-yellow-900/50 text-yellow-300 animate-pulse",
+                        doc.status == :processing &&
+                          "bg-yellow-900/50 text-yellow-300 animate-pulse",
                         doc.status == :uploaded && "bg-blue-900/50 text-blue-300",
                         doc.status == :error && "bg-red-900/50 text-red-300"
                       ]}>
@@ -656,278 +681,162 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
               </div>
             </div>
 
-            <%!-- Concepts Section (Bottom, scrollable) --%>
+            <%!-- My Diagrams Section --%>
             <div class="bg-slate-900 rounded-xl p-4 flex flex-col overflow-hidden">
-              <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center gap-3">
-                  <h2 class="text-xl font-semibold">Concepts</h2>
-                </div>
-                <%= if MapSet.size(@selected_concepts) > 0 do %>
-                  <button
-                    phx-click="generate_diagrams"
-                    class="px-3 py-1 text-sm bg-green-600 hover:bg-green-700 rounded transition"
-                  >
-                    Generate ({MapSet.size(@selected_concepts)})
-                  </button>
-                <% end %>
-              </div>
+              <h2 class="text-xl font-semibold mb-3">
+                MY DIAGRAMS ({length(@diagrams)})
+              </h2>
 
-              <%!-- Search Input --%>
+              <%!-- Tag Filter Input --%>
               <div class="mb-3">
-                <form phx-change="search_diagrams" class="w-full">
+                <form phx-submit="add_tag_to_filter" class="w-full">
                   <div class="flex gap-2">
                     <input
                       type="text"
-                      name="search"
-                      value={@search_query}
-                      placeholder="Search diagrams (min 3 chars)..."
-                      phx-debounce="500"
+                      name="tag"
+                      value={@new_tag_input}
+                      placeholder="Filter by tag..."
+                      phx-change="update_tag_input"
+                      list="tag-suggestions"
                       class="flex-1 px-3 py-2 text-sm bg-slate-800 border border-slate-700 rounded focus:border-blue-500 focus:outline-none"
                     />
-                    <%= if @search_query != "" do %>
-                      <button
-                        type="button"
-                        phx-click="clear_search"
-                        class="px-3 py-2 text-sm bg-slate-800 border border-slate-700 rounded text-slate-400 hover:text-slate-300 hover:border-slate-600"
-                      >
-                        ✕ Clear
-                      </button>
-                    <% end %>
+                    <datalist id="tag-suggestions">
+                      <%= for tag <- @available_tags do %>
+                        <option value={tag}>{tag}</option>
+                      <% end %>
+                    </datalist>
+                    <button
+                      type="submit"
+                      class="px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 rounded transition"
+                    >
+                      Add
+                    </button>
                   </div>
                 </form>
               </div>
 
-              <%!-- Pagination Controls --%>
-              <% total_pages = ceil(@concepts_total / @concepts_page_size) %>
-              <div class="flex items-center justify-between mb-3 pb-3 border-b border-slate-800 text-xs">
-                <div class="flex items-center gap-4">
-                  <%!-- Toggle for showing only concepts with diagrams --%>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={@show_only_with_diagrams}
-                      phx-click="toggle_show_only_with_diagrams"
-                      class="w-4 h-4 rounded bg-slate-800 border-slate-600 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-900"
-                    />
-                    <span class="text-slate-400">Only with diagrams</span>
-                  </label>
-                  <form phx-change="concepts_change_page_size" class="flex items-center gap-2">
-                    <span class="text-slate-400">Page size:</span>
-                    <select
-                      name="page_size"
-                      class="bg-slate-800 text-slate-300 rounded px-2 py-1"
-                    >
-                      <%= for size <- [5, 10, 25, 50] do %>
-                        <option value={size} selected={@concepts_page_size == size}>
-                          {size}
-                        </option>
-                      <% end %>
-                    </select>
-                  </form>
-                </div>
-                <div class="flex items-center gap-2">
-                  <span class="text-slate-400">
-                    Page {@concepts_page} of {total_pages} ({@concepts_total} total)
-                  </span>
-                  <div class="flex gap-1">
-                    <button
-                      phx-click="concepts_change_page"
-                      phx-value-page={@concepts_page - 1}
-                      disabled={@concepts_page == 1}
-                      class={[
-                        "px-2 py-1 rounded transition",
-                        @concepts_page == 1 &&
-                          "bg-slate-800 text-slate-600 cursor-not-allowed",
-                        @concepts_page > 1 && "bg-slate-700 hover:bg-slate-600 text-slate-300"
-                      ]}
-                    >
-                      ←
-                    </button>
-                    <button
-                      phx-click="concepts_change_page"
-                      phx-value-page={@concepts_page + 1}
-                      disabled={@concepts_page >= total_pages}
-                      class={[
-                        "px-2 py-1 rounded transition",
-                        @concepts_page >= total_pages &&
-                          "bg-slate-800 text-slate-600 cursor-not-allowed",
-                        @concepts_page < total_pages &&
-                          "bg-slate-700 hover:bg-slate-600 text-slate-300"
-                      ]}
-                    >
-                      →
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <%!-- Category Filter Tags --%>
-              <% categories = @concepts |> Enum.map(& &1.category) |> Enum.uniq() |> Enum.sort() %>
-              <%= if categories != [] do %>
-                <div class="flex flex-wrap gap-2 mb-3 pb-3 border-b border-slate-800">
-                  <span class="text-xs text-slate-400 self-center">Filter:</span>
-                  <%= for category <- categories do %>
-                    <button
-                      phx-click="filter_category"
-                      phx-value-category={category}
-                      class={[
-                        "text-xs px-2 py-1 rounded transition",
-                        @category_filter == category &&
-                          "bg-blue-600 text-white font-medium",
-                        @category_filter != category &&
-                          "bg-slate-700 hover:bg-slate-600 text-slate-300"
-                      ]}
-                    >
-                      {category}
-                    </button>
-                  <% end %>
-                  <%= if @category_filter do %>
-                    <button
-                      phx-click="filter_category"
-                      phx-value-category={@category_filter}
-                      class="text-xs px-2 py-1 rounded bg-slate-800 text-slate-400 hover:text-slate-300"
-                    >
-                      ✕ Clear
-                    </button>
-                  <% end %>
-                </div>
-              <% end %>
-
-              <%= if @generation_total > 0 and MapSet.size(@generating_concepts) > 0 do %>
-                <div class="mb-4 p-3 bg-blue-900/30 border border-blue-700/50 rounded-lg">
-                  <div class="flex items-center justify-between text-sm">
-                    <span class="text-blue-300">
-                      Generating: {@generation_completed} of {@generation_total}
-                    </span>
-                    <div class="w-24 h-2 bg-slate-700 rounded-full overflow-hidden">
-                      <div
-                        class="h-full bg-blue-500 transition-all duration-300"
-                        style={"width: #{if @generation_total > 0, do: (@generation_completed / @generation_total * 100), else: 0}%"}
+              <%!-- Active Filter Chips --%>
+              <%= if @active_tag_filter != [] do %>
+                <div class="flex flex-wrap gap-2 mb-3">
+                  <%= for tag <- @active_tag_filter do %>
+                    <div class="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
+                      <span>{tag}</span>
+                      <button
+                        type="button"
+                        phx-click="remove_tag_from_filter"
+                        phx-value-tag={tag}
+                        class="hover:bg-blue-200 rounded-full p-0.5"
                       >
-                      </div>
+                        ✕
+                      </button>
                     </div>
-                  </div>
+                  <% end %>
+                  <button
+                    type="button"
+                    phx-click="clear_filter"
+                    class="text-sm text-slate-400 hover:text-slate-300"
+                  >
+                    Clear all
+                  </button>
                 </div>
               <% end %>
 
-              <%!-- Scrollable Concepts List --%>
-              <div class="overflow-y-auto space-y-1 max-h-[800px]">
-                <% filtered_concepts =
-                  if @category_filter,
-                    do: Enum.filter(@concepts, &(&1.category == @category_filter)),
-                    else: @concepts %>
-                <%= for concept <- filtered_concepts do %>
-                  <% concept_diagrams = diagrams_for_concept(@diagrams, concept.id) %>
-                  <% is_expanded = MapSet.member?(@expanded_concepts, concept.id) %>
+              <%!-- Save Current Filter Button --%>
+              <%= if @current_user && @active_tag_filter != [] do %>
+                <button
+                  phx-click="show_save_filter_modal"
+                  class="mb-3 px-3 py-2 text-sm bg-green-600 hover:bg-green-700 rounded transition"
+                >
+                  Save Current Filter
+                </button>
+              <% end %>
 
-                  <div class="border border-slate-800 rounded-lg overflow-hidden">
-                    <%!-- Concept Header --%>
-                    <div
-                      class="p-2 bg-slate-800/50 hover:bg-slate-800 cursor-pointer flex items-center gap-2"
-                      phx-click="toggle_concept_expand"
-                      phx-value-id={concept.id}
-                    >
-                      <span class="text-slate-400">
-                        {if is_expanded, do: "▼", else: "▶"}
-                      </span>
-                      <div class="flex-1">
-                        <div class="font-medium text-sm">{concept.name}</div>
-                        <div class="flex gap-1 mt-1">
-                          <span class="text-xs px-1.5 py-0.5 bg-slate-700 rounded">
-                            {concept.category}
-                          </span>
-                          <%= if length(concept_diagrams) > 0 do %>
-                            <span class="text-xs px-1.5 py-0.5 bg-blue-900/50 text-blue-300 rounded">
-                              {length(concept_diagrams)} diagrams
-                            </span>
-                          <% end %>
-                          <%= if Map.has_key?(@failed_generations, concept.id) do %>
-                            <% error = @failed_generations[concept.id] %>
-                            <span class={[
-                              "text-xs px-1.5 py-0.5 rounded font-semibold",
-                              error.severity == :critical && "bg-red-900/50 text-red-300",
-                              error.severity == :high && "bg-orange-900/50 text-orange-300",
-                              error.severity == :medium && "bg-yellow-900/50 text-yellow-300",
-                              error.severity == :low && "bg-blue-900/50 text-blue-300"
-                            ]}>
-                              ⚠
-                            </span>
-                          <% end %>
-                        </div>
+              <%!-- Pinned Filters Section --%>
+              <%= if @pinned_filters != [] do %>
+                <div class="mb-3 pb-3 border-b border-slate-800">
+                  <h3 class="text-sm font-semibold mb-2 text-slate-400">PINNED FILTERS</h3>
+                  <%= for filter <- @pinned_filters do %>
+                    <% count = Diagrams.get_saved_filter_count(@current_user.id, filter) %>
+                    <div class="flex items-center justify-between py-2 px-3 hover:bg-slate-800/50 rounded group mb-1">
+                      <button
+                        type="button"
+                        phx-click="apply_saved_filter"
+                        phx-value-id={filter.id}
+                        class="flex-1 flex items-center gap-2 text-left text-sm"
+                      >
+                        <span class="font-medium">{filter.name}</span>
+                        <span class="text-xs text-slate-500">({count})</span>
+                      </button>
+                      <div class="flex gap-1">
+                        <button
+                          type="button"
+                          phx-click="toggle_filter_pin"
+                          phx-value-id={filter.id}
+                          class="p-1 hover:bg-slate-700 rounded text-xs"
+                          title="Unpin"
+                        >
+                          📌
+                        </button>
+                        <button
+                          type="button"
+                          phx-click="delete_filter"
+                          phx-value-id={filter.id}
+                          data-confirm="Delete this filter?"
+                          class="p-1 hover:bg-red-900/50 rounded text-xs text-red-400"
+                          title="Delete"
+                        >
+                          🗑
+                        </button>
                       </div>
                     </div>
+                  <% end %>
+                </div>
+              <% end %>
 
-                    <%!-- Diagrams List (Expandable) --%>
-                    <%= if is_expanded do %>
-                      <div class="bg-slate-900/30">
-                        <%= if length(concept_diagrams) > 0 do %>
-                          <%= for diagram <- concept_diagrams do %>
-                            <div
-                              class={[
-                                "pl-8 pr-2 py-2 text-sm cursor-pointer transition border-l-2",
-                                @selected_diagram && @selected_diagram.id == diagram.id &&
-                                  "bg-blue-900/30 border-blue-500 text-blue-200",
-                                (!@selected_diagram || @selected_diagram.id != diagram.id) &&
-                                  "border-transparent hover:bg-slate-800/50"
-                              ]}
-                              phx-click="select_diagram"
-                              phx-value-id={diagram.id}
-                            >
-                              → {diagram.title}
-                            </div>
-                          <% end %>
-                        <% else %>
-                          <div class="pl-8 pr-2 py-2 text-sm text-slate-500">
-                            <label class="flex items-center gap-2 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={MapSet.member?(@selected_concepts, concept.id)}
-                                phx-click="toggle_concept"
-                                phx-value-id={concept.id}
-                              />
-                              <span>Select to generate</span>
-                            </label>
-                          </div>
-                        <% end %>
-                      </div>
-                    <% end %>
+              <%!-- Diagrams List --%>
+              <div class="overflow-y-auto space-y-2 max-h-[600px]">
+                <%= for diagram <- @diagrams do %>
+                  <div
+                    class={[
+                      "p-3 rounded-lg border transition cursor-pointer",
+                      @selected_diagram && @selected_diagram.id == diagram.id &&
+                        "bg-blue-900/30 border-blue-500",
+                      (!@selected_diagram || @selected_diagram.id != diagram.id) &&
+                        "border-slate-700 hover:bg-slate-800/50"
+                    ]}
+                    phx-click="select_diagram"
+                    phx-value-id={diagram.id}
+                  >
+                    <h3 class="font-medium text-sm mb-1">{diagram.title}</h3>
+                    <div class="flex flex-wrap gap-1">
+                      <%= for tag <- diagram.tags do %>
+                        <span class="text-xs px-2 py-0.5 bg-slate-700 rounded">
+                          {tag}
+                        </span>
+                      <% end %>
+                    </div>
                   </div>
                 <% end %>
 
-                <%= if @concepts == [] do %>
+                <%= if @diagrams == [] do %>
                   <p class="text-sm text-slate-400 text-center py-4">
-                    No concepts extracted yet. Upload a document to get started.
+                    No diagrams yet. Upload a document or generate from prompt.
                   </p>
                 <% end %>
-              </div>
-            </div>
-
-            <%!-- Tips & Shortcuts (Bottom) --%>
-            <div class="bg-slate-900 rounded-xl p-4 mt-auto">
-              <div class="text-xs text-slate-400">
-                <div class="font-semibold text-slate-300 mb-1.5">💡 Tips & Shortcuts</div>
-                <ul class="space-y-0.5 list-disc pl-5">
-                  <li>Click concept names to expand/collapse diagram lists</li>
-                  <li>Select diagrams to view them in the main area</li>
-                  <li>Use "Generate from Prompt" for custom diagrams</li>
-                </ul>
               </div>
             </div>
           </div>
 
           <%!-- Right Main Area: Diagram Display + Generate --%>
           <div class="lg:col-span-3 space-y-4 flex flex-col">
-            <%!-- Diagram Display (Top, Large) --%>
+            <%!-- Diagram Display --%>
             <div class="bg-slate-900 rounded-xl p-6 flex-1 overflow-auto">
               <%= if @selected_diagram do %>
                 <div class="space-y-4">
-                  <%!-- Two-column header: Title/Summary + Notes --%>
                   <div class="grid grid-cols-2 gap-6">
-                    <%!-- Left: Title, Summary, Source, Tags --%>
                     <div>
                       <h2 class="text-2xl font-semibold mb-2">{@selected_diagram.title}</h2>
                       <p class="text-slate-300 mb-2">{@selected_diagram.summary}</p>
-                      <%!-- Source display --%>
                       <p class="text-sm text-slate-400 mb-2">
                         Source:
                         <%= if @selected_diagram.document_id && @selected_diagram.document do %>
@@ -937,9 +846,6 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                         <% end %>
                       </p>
                       <div class="flex gap-2 mt-2 flex-wrap">
-                        <span class="text-xs px-2 py-1 bg-slate-800 rounded">
-                          {@selected_diagram.domain}
-                        </span>
                         <%= for tag <- @selected_diagram.tags do %>
                           <span class="text-xs px-2 py-1 bg-slate-700 rounded">
                             {tag}
@@ -948,7 +854,6 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                       </div>
                     </div>
 
-                    <%!-- Right: Notes --%>
                     <div class="flex flex-col justify-between">
                       <%= if @selected_diagram.notes_md do %>
                         <div class="text-sm text-slate-400">
@@ -959,17 +864,10 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                         </div>
                       <% end %>
 
-                      <%!-- Action buttons row --%>
                       <div class="flex gap-2 mt-3">
-                        <%!-- Diagram Theme Switcher Button --%>
                         <button
                           phx-click="toggle_diagram_theme"
                           class="px-3 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition whitespace-nowrap"
-                          title={
-                            if @diagram_theme == "light",
-                              do: "Switch diagram to white on black",
-                              else: "Switch diagram to black on white"
-                          }
                         >
                           <%= if @diagram_theme == "light" do %>
                             Theme: Black on White
@@ -978,49 +876,39 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                           <% end %>
                         </button>
 
-                        <%!-- Copy Share Link Button (only for owners) --%>
-                        <%= if Diagrams.can_edit_diagram?(@selected_diagram, @current_user) do %>
-                          <button
-                            phx-click="copy_share_link"
-                            phx-hook="CopyToClipboard"
-                            id="copy-share-link-btn"
-                            class="px-3 py-1 text-xs bg-cyan-800 hover:bg-cyan-700 text-white rounded transition whitespace-nowrap"
-                            title="Copy shareable link to clipboard"
-                          >
-                            <svg
-                              class="w-3 h-3 inline-block mr-1"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                stroke-width="2"
-                                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                              />
-                            </svg>
-                            Copy Share Link
-                          </button>
-                        <% end %>
+                        <button
+                          phx-click="copy_share_link"
+                          phx-hook="CopyToClipboard"
+                          id="copy-share-link-btn"
+                          class="px-3 py-1 text-xs bg-cyan-800 hover:bg-cyan-700 text-white rounded transition whitespace-nowrap"
+                        >
+                          Copy Share Link
+                        </button>
+
+                        <button
+                          phx-click="fork_diagram"
+                          phx-value-id={@selected_diagram.id}
+                          class="px-3 py-1 text-xs bg-purple-800 hover:bg-purple-700 text-white rounded transition whitespace-nowrap"
+                        >
+                          Fork
+                        </button>
                       </div>
                     </div>
                   </div>
 
-                  <%!-- Save/Discard buttons for generated diagrams --%>
                   <%= if @generated_diagram do %>
                     <div class="flex gap-3 p-4 bg-blue-900/20 border border-blue-700/50 rounded-lg">
                       <button
                         phx-click="save_generated_diagram"
                         class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors flex-1"
                       >
-                        💾 Save Diagram
+                        Save Diagram
                       </button>
                       <button
                         phx-click="discard_generated_diagram"
                         class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium transition-colors flex-1"
                       >
-                        🗑️ Discard
+                        Discard
                       </button>
                     </div>
                   <% end %>
@@ -1056,13 +944,13 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                       />
                     </svg>
                     <p class="text-lg">Select a diagram to view</p>
-                    <p class="text-sm mt-1">Click on a diagram from the concepts tree</p>
+                    <p class="text-sm mt-1">Click on a diagram from the sidebar</p>
                   </div>
                 </div>
               <% end %>
             </div>
 
-            <%!-- Generate from Prompt (Bottom) --%>
+            <%!-- Generate from Prompt --%>
             <div class="bg-slate-900 rounded-xl p-4">
               <h2 class="text-xl font-semibold mb-3">Generate from Prompt</h2>
 
@@ -1119,101 +1007,56 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
           </div>
         </div>
       </div>
+
+      <%!-- Save Filter Modal --%>
+      <%= if @show_save_filter_modal do %>
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div class="bg-slate-900 rounded-lg p-6 max-w-md w-full mx-4">
+            <h2 class="text-xl font-bold mb-4">Save Current Filter</h2>
+
+            <form phx-submit="save_current_filter" class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium mb-2">Filter Name</label>
+                <input
+                  type="text"
+                  name="name"
+                  placeholder="e.g., Interview Prep"
+                  required
+                  class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div class="text-sm text-slate-400">
+                <p class="mb-1">Current tags:</p>
+                <div class="flex flex-wrap gap-2">
+                  <%= for tag <- @active_tag_filter do %>
+                    <span class="px-2 py-1 bg-slate-700 rounded text-xs">
+                      {tag}
+                    </span>
+                  <% end %>
+                </div>
+              </div>
+
+              <div class="flex justify-end gap-2 mt-6">
+                <button
+                  type="button"
+                  phx-click="hide_save_filter_modal"
+                  class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition"
+                >
+                  Save Filter
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      <% end %>
     </div>
     """
-  end
-
-  defp list_documents do
-    Diagrams.list_documents()
-  end
-
-  defp list_concepts(opts) do
-    Diagrams.list_concepts(opts)
-  end
-
-  defp count_concepts(opts) do
-    Diagrams.count_concepts(opts)
-  end
-
-  defp schedule_document_refresh do
-    # Refresh documents every minute to auto-hide completed documents after 5 minutes
-    Process.send_after(self(), :refresh_documents, 60_000)
-  end
-
-  defp maybe_update_selected_document(socket, _document_id) do
-    only_with_diagrams = socket.assigns.show_only_with_diagrams
-    search_query = socket.assigns.search_query
-
-    # Reload all concepts since new concepts may have been added, using current pagination
-    concepts =
-      list_concepts(
-        page: socket.assigns.concepts_page,
-        page_size: socket.assigns.concepts_page_size,
-        only_with_diagrams: only_with_diagrams,
-        search_query: search_query
-      )
-
-    concepts_total =
-      count_concepts(
-        only_with_diagrams: only_with_diagrams,
-        search_query: search_query
-      )
-
-    socket
-    |> assign(:concepts, concepts)
-    |> assign(:concepts_total, concepts_total)
-  end
-
-  defp build_query_params(socket, overrides) do
-    page = Keyword.get(overrides, :page, socket.assigns.concepts_page)
-    page_size = Keyword.get(overrides, :page_size, socket.assigns.concepts_page_size)
-
-    only_with_diagrams =
-      Keyword.get(overrides, :only_with_diagrams, socket.assigns.show_only_with_diagrams)
-
-    search_query = Keyword.get(overrides, :search_query, socket.assigns.search_query)
-
-    params = [
-      page: page,
-      page_size: page_size,
-      only_with_diagrams: only_with_diagrams
-    ]
-
-    # Add search_query if not empty
-    if search_query != "" do
-      Keyword.put(params, :search_query, search_query)
-    else
-      params
-    end
-  end
-
-  defp parse_int(nil, default), do: default
-
-  defp parse_int(value, default) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, _} -> int
-      :error -> default
-    end
-  end
-
-  defp parse_int(value, _default) when is_integer(value), do: value
-
-  defp parse_bool(nil, default), do: default
-  defp parse_bool("true", _default), do: true
-  defp parse_bool("false", _default), do: false
-  defp parse_bool(value, _default) when is_boolean(value), do: value
-
-  defp format_status(status) do
-    case status do
-      :uploaded -> "Uploaded"
-      :processing -> "Processing..."
-      :ready -> "Ready"
-      :error -> "Error"
-      _ -> to_string(status)
-    end
-  end
-
-  defp diagrams_for_concept(diagrams, concept_id) do
-    Enum.filter(diagrams, fn d -> d.concept_id == concept_id end)
   end
 end

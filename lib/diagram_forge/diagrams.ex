@@ -6,7 +6,7 @@ defmodule DiagramForge.Diagrams do
   import Ecto.Query, warn: false
   alias DiagramForge.Repo
 
-  alias DiagramForge.Diagrams.{Concept, Diagram, Document}
+  alias DiagramForge.Diagrams.{Diagram, Document}
   alias DiagramForge.Diagrams.Workers.ProcessDocumentJob
 
   # Documents
@@ -113,136 +113,6 @@ defmodule DiagramForge.Diagrams do
     end
   end
 
-  # Concepts
-
-  @doc """
-  Lists all concepts with pagination.
-
-  ## Options
-
-    * `:page` - Page number (default: 1)
-    * `:page_size` - Number of concepts per page (default: 10)
-    * `:only_with_diagrams` - Only return concepts that have diagrams (default: false)
-
-  ## Examples
-
-      iex> list_concepts(page: 1, page_size: 20)
-      [%Concept{}, ...]
-
-      iex> list_concepts(page: 2, page_size: 50, only_with_diagrams: true)
-      [%Concept{}, ...]
-  """
-  def list_concepts(opts \\ []) do
-    page = Keyword.get(opts, :page, 1)
-    page_size = Keyword.get(opts, :page_size, 10)
-    only_with_diagrams = Keyword.get(opts, :only_with_diagrams, false)
-    search_query = Keyword.get(opts, :search_query, "")
-    offset = (page - 1) * page_size
-
-    base_query = from(c in Concept)
-
-    needs_distinct = only_with_diagrams or search_query != ""
-
-    query =
-      base_query
-      |> maybe_filter_by_diagrams(only_with_diagrams)
-      |> maybe_filter_by_search(search_query)
-      |> maybe_add_distinct(needs_distinct)
-      |> order_by([c], asc: c.name)
-      |> limit(^page_size)
-      |> offset(^offset)
-
-    Repo.all(query)
-  end
-
-  defp maybe_filter_by_diagrams(query, false), do: query
-
-  defp maybe_filter_by_diagrams(query, true) do
-    # Show concepts with any diagrams
-    from c in query,
-      join: d in assoc(c, :diagrams)
-  end
-
-  defp maybe_filter_by_search(query, ""), do: query
-
-  defp maybe_filter_by_search(query, search_query) do
-    # Search diagrams by title or summary, then filter concepts that have matching diagrams
-    search_pattern = "%#{search_query}%"
-
-    from c in query,
-      join: d in assoc(c, :diagrams),
-      where: ilike(d.title, ^search_pattern) or ilike(d.summary, ^search_pattern)
-  end
-
-  defp maybe_add_distinct(query, false), do: query
-
-  defp maybe_add_distinct(query, true) do
-    from c in query, distinct: true
-  end
-
-  # Count-specific filters that don't use distinct (since count uses count(distinct))
-  defp maybe_filter_by_diagrams_for_count(query, false), do: query
-
-  defp maybe_filter_by_diagrams_for_count(query, true) do
-    # Count concepts with any diagrams
-    from c in query,
-      join: d in assoc(c, :diagrams)
-  end
-
-  defp maybe_filter_by_search_for_count(query, ""), do: query
-
-  defp maybe_filter_by_search_for_count(query, search_query) do
-    # Search diagrams by title or summary, then count concepts that have matching diagrams
-    search_pattern = "%#{search_query}%"
-
-    from c in query,
-      join: d in assoc(c, :diagrams),
-      where: ilike(d.title, ^search_pattern) or ilike(d.summary, ^search_pattern)
-  end
-
-  @doc """
-  Counts total number of concepts.
-
-  ## Options
-
-    * `:only_with_diagrams` - Only count concepts that have diagrams (default: false)
-    * `:search_query` - Search query for filtering by diagram title/summary (optional)
-  """
-  def count_concepts(opts \\ []) do
-    only_with_diagrams = Keyword.get(opts, :only_with_diagrams, false)
-    search_query = Keyword.get(opts, :search_query, "")
-
-    base_query = from(c in Concept, select: count(c.id, :distinct))
-
-    query =
-      base_query
-      |> maybe_filter_by_diagrams_for_count(only_with_diagrams)
-      |> maybe_filter_by_search_for_count(search_query)
-
-    Repo.one(query) || 0
-  end
-
-  @doc """
-  Lists concepts for a given document.
-
-  Since concepts are globally unique, this finds all concepts that have
-  diagrams associated with the given document.
-  """
-  def list_concepts_for_document(document_id) do
-    Repo.all(
-      from c in Concept,
-        join: d in assoc(c, :diagrams),
-        where: d.document_id == ^document_id,
-        distinct: c.id,
-        order_by: [asc: c.name]
-    )
-  end
-
-  @doc """
-  Gets a single concept.
-  """
-  def get_concept!(id), do: Repo.get!(Concept, id)
-
   # Diagrams
 
   @doc """
@@ -250,17 +120,6 @@ defmodule DiagramForge.Diagrams do
   """
   def list_diagrams do
     Repo.all(from d in Diagram, order_by: [desc: d.inserted_at])
-  end
-
-  @doc """
-  Lists diagrams for a given concept.
-  """
-  def list_diagrams_for_concept(concept_id) do
-    Repo.all(
-      from d in Diagram,
-        where: d.concept_id == ^concept_id,
-        order_by: [desc: d.inserted_at]
-    )
   end
 
   @doc """
@@ -329,88 +188,261 @@ defmodule DiagramForge.Diagrams do
     DiagramGenerator.generate_from_prompt(prompt, opts)
   end
 
-  # Authorization functions
+  # Tag Management Functions
 
   @doc """
-  Lists diagrams visible to the given user in the Concepts sidebar.
+  Lists all unique tags across all diagrams a user can access.
 
-  - Superadmin: sees all diagrams
-  - Authenticated user: sees own diagrams + public diagrams + superadmin diagrams
-  - Guest (nil user): sees only public diagrams
+  Used for tag autocomplete and tag cloud.
   """
-  def list_visible_diagrams(user \\ nil) do
-    alias DiagramForge.Accounts
+  def list_available_tags(_user_id) do
+    # For now, just get all tags from all diagrams
+    # In the future when we have user_diagrams join table, we'll filter by user
+    query =
+      from d in Diagram,
+        select: d.tags
 
-    cond do
-      user && Accounts.user_is_superadmin?(user) ->
-        list_diagrams()
-
-      user ->
-        Repo.all(
-          from d in Diagram,
-            where:
-              d.user_id == ^user.id or
-                is_nil(d.user_id) or
-                d.created_by_superadmin == true,
-            order_by: [desc: d.inserted_at]
-        )
-
-      true ->
-        Repo.all(
-          from d in Diagram,
-            where: is_nil(d.user_id) or d.created_by_superadmin == true,
-            order_by: [desc: d.inserted_at]
-        )
-    end
+    Repo.all(query)
+    |> List.flatten()
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   @doc """
-  Gets a diagram for viewing via direct link.
+  Gets tag counts for all diagrams.
 
-  Any diagram can be viewed if you have the direct link (ID),
-  regardless of user ownership. This allows users to share their diagrams
-  via direct links while keeping them private in the concepts list.
+  Returns a map of tag => count for displaying tag clouds.
   """
-  def get_diagram_for_viewing(id_or_slug) do
-    # This function allows public access to ANY diagram via direct link
-    case Ecto.UUID.cast(id_or_slug) do
-      {:ok, uuid} -> get_diagram!(uuid)
-      :error -> get_diagram_by_slug(id_or_slug)
-    end
+  def get_tag_counts(_user_id) do
+    # For now, just get all tags from all diagrams
+    # In the future when we have user_diagrams join table, we'll filter by user
+    query =
+      from d in Diagram,
+        select: d.tags
+
+    Repo.all(query)
+    |> List.flatten()
+    |> Enum.frequencies()
   end
 
   @doc """
-  Checks if a user can edit a diagram.
-
-  - Superadmin: can edit all diagrams
-  - Owner: can edit their own diagrams
-  - Others: cannot edit
+  Adds tags to a diagram.
   """
-  def can_edit_diagram?(%Diagram{} = diagram, user) do
-    alias DiagramForge.Accounts
+  def add_tags(%Diagram{} = diagram, new_tags, _user_id) when is_list(new_tags) do
+    current_tags = diagram.tags || []
+    updated_tags = (current_tags ++ new_tags) |> Enum.uniq()
 
-    cond do
-      user && Accounts.user_is_superadmin?(user) -> true
-      user && diagram.user_id == user.id -> true
-      true -> false
-    end
+    diagram
+    |> Diagram.changeset(%{tags: updated_tags})
+    |> Repo.update()
   end
 
   @doc """
-  Creates a diagram with user ownership.
+  Removes tags from a diagram.
   """
-  def create_diagram_for_user(attrs, user) do
-    alias DiagramForge.Accounts
+  def remove_tags(%Diagram{} = diagram, tags_to_remove, _user_id) when is_list(tags_to_remove) do
+    current_tags = diagram.tags || []
+    updated_tags = current_tags -- tags_to_remove
 
-    is_superadmin = if user, do: Accounts.user_is_superadmin?(user), else: false
+    diagram
+    |> Diagram.changeset(%{tags: updated_tags})
+    |> Repo.update()
+  end
+
+  # Saved Filter Functions
+
+  alias DiagramForge.Diagrams.SavedFilter
+
+  @doc """
+  Lists all saved filters for a user.
+  """
+  def list_saved_filters(user_id) do
+    Repo.all(
+      from f in SavedFilter,
+        where: f.user_id == ^user_id,
+        order_by: [asc: f.sort_order]
+    )
+  end
+
+  @doc """
+  Lists only pinned saved filters for a user (for sidebar display).
+  """
+  def list_pinned_filters(user_id) do
+    Repo.all(
+      from f in SavedFilter,
+        where: f.user_id == ^user_id and f.is_pinned == true,
+        order_by: [asc: f.sort_order]
+    )
+  end
+
+  @doc """
+  Gets a saved filter by ID.
+  """
+  def get_saved_filter!(id), do: Repo.get!(SavedFilter, id)
+
+  @doc """
+  Creates a saved filter for a user.
+  """
+  def create_saved_filter(attrs, user_id) do
+    # Get current max sort_order for user
+    max_sort_order =
+      Repo.one(
+        from f in SavedFilter,
+          where: f.user_id == ^user_id,
+          select: max(f.sort_order)
+      ) || 0
 
     attrs =
       attrs
-      |> Map.put(:user_id, user && user.id)
-      |> Map.put(:created_by_superadmin, is_superadmin)
+      |> Map.put(:user_id, user_id)
+      |> Map.put_new(:sort_order, max_sort_order + 1)
 
-    %Diagram{}
-    |> Diagram.changeset(attrs)
+    %SavedFilter{}
+    |> SavedFilter.changeset(attrs)
     |> Repo.insert()
+  end
+
+  @doc """
+  Updates a saved filter (only owner can update).
+  """
+  def update_saved_filter(%SavedFilter{} = filter, attrs, user_id) do
+    if filter.user_id == user_id do
+      filter
+      |> SavedFilter.changeset(attrs)
+      |> Repo.update()
+    else
+      {:error, :unauthorized}
+    end
+  end
+
+  @doc """
+  Deletes a saved filter (only owner can delete).
+  """
+  def delete_saved_filter(%SavedFilter{} = filter, user_id) do
+    if filter.user_id == user_id do
+      Repo.delete(filter)
+    else
+      {:error, :unauthorized}
+    end
+  end
+
+  @doc """
+  Reorders saved filters by updating sort_order.
+
+  Takes a list of filter IDs in the desired order.
+  """
+  def reorder_saved_filters(filter_ids, user_id) when is_list(filter_ids) do
+    Repo.transaction(fn ->
+      filter_ids
+      |> Enum.with_index()
+      |> Enum.each(&update_filter_sort_order(&1, user_id))
+    end)
+  end
+
+  defp update_filter_sort_order({filter_id, index}, user_id) do
+    filter = Repo.get!(SavedFilter, filter_id)
+
+    if filter.user_id == user_id do
+      filter
+      |> SavedFilter.changeset(%{sort_order: index})
+      |> Repo.update!()
+    else
+      Repo.rollback(:unauthorized)
+    end
+  end
+
+  # Tag-Based Query Functions
+
+  @doc """
+  Lists diagrams matching a tag filter.
+
+  Empty tag list means "show all diagrams".
+  Tags are combined with AND logic (diagram must have ALL tags).
+  """
+  def list_diagrams_by_tags(_user_id, tags, _ownership \\ :all)
+
+  def list_diagrams_by_tags(_user_id, [], _ownership) do
+    # Empty tags means show all
+    list_diagrams()
+  end
+
+  def list_diagrams_by_tags(_user_id, tags, _ownership) when is_list(tags) do
+    # Build query with tag filter (must have ALL tags)
+    query =
+      Enum.reduce(tags, from(d in Diagram), fn tag, acc ->
+        from d in acc,
+          where: ^tag in d.tags
+      end)
+
+    # Execute with ordering
+    query
+    |> order_by([d], desc: d.inserted_at)
+    |> Repo.all()
+  end
+
+  @doc """
+  Lists diagrams matching a saved filter.
+  """
+  def list_diagrams_by_saved_filter(user_id, %SavedFilter{} = filter) do
+    list_diagrams_by_tags(user_id, filter.tag_filter, :all)
+  end
+
+  @doc """
+  Gets counts for a saved filter (how many diagrams match).
+  """
+  def get_saved_filter_count(user_id, %SavedFilter{} = filter) do
+    diagrams = list_diagrams_by_tags(user_id, filter.tag_filter, :all)
+    length(diagrams)
+  end
+
+  # Fork and Bookmark Functions
+
+  @doc """
+  Forks a diagram.
+
+  Creates a new diagram with:
+  - All data copied from original
+  - Tags copied from original (user can edit after)
+  - New ID generated
+  - forked_from_id set to original
+  """
+  def fork_diagram(original_id, _user_id) do
+    Repo.transaction(fn ->
+      original = Repo.get!(Diagram, original_id)
+
+      # Create new diagram with copied data
+      new_diagram_attrs = %{
+        title: original.title,
+        diagram_source: original.diagram_source,
+        summary: original.summary,
+        notes_md: original.notes_md,
+        tags: original.tags,
+        format: original.format,
+        slug: generate_unique_slug(original.slug),
+        visibility: :unlisted,
+        forked_from_id: original.id
+      }
+
+      case %Diagram{}
+           |> Diagram.changeset(new_diagram_attrs)
+           |> Repo.insert() do
+        {:ok, diagram} -> diagram
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  @doc """
+  Bookmarks/saves a diagram for a user.
+
+  For now this is a placeholder - we'll implement user_diagrams join table later.
+  """
+  def bookmark_diagram(_diagram_id, _user_id) do
+    {:error, :not_implemented}
+  end
+
+  defp generate_unique_slug(original_slug) do
+    timestamp = :os.system_time(:millisecond)
+    "#{original_slug}-fork-#{timestamp}"
   end
 end

@@ -4,23 +4,19 @@ defmodule DiagramForge.Diagrams.Workers.ProcessDocumentJob do
 
   This job:
   1. Extracts text from the document (PDF or Markdown)
-  2. Runs concept extraction on the extracted text
-  3. Updates the document status accordingly
+  2. Updates the document status accordingly
   """
 
   use Oban.Worker, queue: :documents, max_attempts: 3
 
   require Logger
 
-  alias DiagramForge.Diagrams.{ConceptExtractor, Document, DocumentIngestor}
+  alias DiagramForge.Diagrams.{Document, DocumentIngestor}
   alias DiagramForge.Repo
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
     doc_id = args["document_id"]
-
-    opts =
-      if args["ai_client"], do: [ai_client: String.to_existing_atom(args["ai_client"])], else: []
 
     doc = Repo.get!(Document, doc_id)
 
@@ -36,29 +32,26 @@ defmodule DiagramForge.Diagrams.Workers.ProcessDocumentJob do
           "Text extracted successfully: document_id=#{doc.id}, text_length=#{String.length(text)}"
         )
 
-        # Update raw_text and extract concepts
-        doc =
-          doc
-          |> Document.changeset(%{raw_text: text})
-          |> Repo.update!()
-
-        Logger.info("Starting concept extraction for document_id=#{doc.id}")
-        concepts = ConceptExtractor.extract_for_document(doc, opts)
-
-        Logger.info(
-          "Concept extraction complete: document_id=#{doc.id}, concepts_count=#{length(concepts)}"
-        )
-
-        # Update status to ready in a single changeset with raw_text to ensure both are persisted
+        # Update raw_text and set status to ready
         doc
-        |> Document.changeset(%{raw_text: text, status: :ready})
+        |> Document.changeset(%{
+          raw_text: text,
+          status: :ready,
+          completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
         |> Repo.update!()
+
+        Logger.info("Document processing complete: document_id=#{doc.id}")
 
         :ok
 
       {:error, reason} ->
         doc
-        |> Document.changeset(%{status: :error, error_message: reason})
+        |> Document.changeset(%{
+          status: :error,
+          error_message: reason,
+          completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
         |> Repo.update()
 
         {:error, reason}
@@ -71,7 +64,11 @@ defmodule DiagramForge.Diagrams.Workers.ProcessDocumentJob do
 
       if doc do
         doc
-        |> Document.changeset(%{status: :error, error_message: Exception.message(e)})
+        |> Document.changeset(%{
+          status: :error,
+          error_message: Exception.message(e),
+          completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
         |> Repo.update()
       end
 
