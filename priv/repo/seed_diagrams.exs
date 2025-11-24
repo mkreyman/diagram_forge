@@ -1,15 +1,36 @@
-# Script for populating the database with sample concepts and diagrams.
+# Script for populating the database with sample diagrams.
 # Run via: mix seed.diagrams
 
 import Ecto.Query
 alias DiagramForge.Repo
-alias DiagramForge.Diagrams.{Document, Concept, Diagram}
+alias DiagramForge.Accounts.User
+alias DiagramForge.Diagrams
+alias DiagramForge.Diagrams.{Document, Diagram, UserDiagram, SavedFilter}
 
-# Clear existing data
-IO.puts("Clearing existing diagrams, concepts, and documents...")
+# Clear existing data in correct order (respecting foreign keys)
+IO.puts("Clearing existing data...")
+Repo.delete_all(UserDiagram)
+Repo.delete_all(SavedFilter)
 Repo.delete_all(Diagram)
-Repo.delete_all(Concept)
 Repo.delete_all(Document)
+Repo.delete_all(User)
+
+# Create a seed user for diagram ownership
+IO.puts("Creating seed user...")
+
+seed_user =
+  %User{}
+  |> User.changeset(%{
+    email: "seed@example.com",
+    name: "Seed User",
+    provider: "github",
+    provider_uid: "seed_user_12345",
+    provider_token: "seed_token",
+    show_public_diagrams: true
+  })
+  |> Repo.insert!()
+
+IO.puts("Seed user created with ID: #{seed_user.id}")
 
 # Create a seed document
 IO.puts("Creating seed document...")
@@ -30,57 +51,6 @@ document =
 
 IO.puts("Document created with ID: #{document.id}")
 
-# Define broader concepts (each will have multiple diagrams)
-concepts_data = [
-  %{
-    name: "GenServer Patterns",
-    short_description:
-      "Core patterns for building concurrent services with GenServer: synchronous calls, asynchronous casts, state management, and timeouts.",
-    category: "elixir"
-  },
-  %{
-    name: "OTP Supervision",
-    short_description:
-      "Organizing processes into supervision trees with different restart strategies for fault tolerance.",
-    category: "elixir"
-  },
-  %{
-    name: "Event-Driven Processing",
-    short_description:
-      "Processing event streams with Kafka, Broadway, and event sourcing patterns for scalable data pipelines.",
-    category: "kafka"
-  },
-  %{
-    name: "ML Model Serving",
-    short_description:
-      "Patterns for serving ML predictions: caching strategies, fallback logic, edge vs cloud inference, and model lifecycle management.",
-    category: "ml"
-  },
-  %{
-    name: "Database Optimization",
-    short_description:
-      "PostgreSQL indexing strategies, query optimization, and partitioning for analytics workloads.",
-    category: "postgres"
-  },
-  %{
-    name: "Distributed System Infrastructure",
-    short_description:
-      "Observability pipelines, circuit breakers, autoscaling, and multi-layer caching for resilient services.",
-    category: "infrastructure"
-  }
-]
-
-IO.puts("Creating #{length(concepts_data)} concepts...")
-
-concepts =
-  Enum.map(concepts_data, fn concept_attrs ->
-    %Concept{}
-    |> Concept.changeset(Map.put(concept_attrs, :document_id, document.id))
-    |> Repo.insert!()
-  end)
-
-IO.puts("Concepts created successfully")
-
 # Helper function to create a URL-safe slug from a title
 generate_slug = fn title ->
   title
@@ -91,39 +61,34 @@ generate_slug = fn title ->
   |> String.trim("-")
 end
 
-# Helper function to create diagrams for a concept
-create_diagram = fn concept_id, title, domain, tags, mermaid, summary, notes ->
-  %Diagram{}
-  |> Diagram.changeset(%{
-    concept_id: concept_id,
-    document_id: document.id,
-    slug: generate_slug.(title),
-    title: title,
-    domain: domain,
-    tags: tags,
-    diagram_source: mermaid,
-    summary: summary,
-    notes_md: notes
-  })
-  |> Repo.insert!()
+# Helper function to create diagrams and assign ownership
+create_diagram = fn title, tags, mermaid, summary, notes, visibility ->
+  diagram =
+    %Diagram{}
+    |> Diagram.changeset(%{
+      document_id: document.id,
+      slug: generate_slug.(title),
+      title: title,
+      tags: tags,
+      diagram_source: mermaid,
+      summary: summary,
+      notes_md: notes,
+      visibility: visibility
+    })
+    |> Repo.insert!()
+
+  # Assign ownership to seed user
+  Diagrams.assign_diagram_to_user(diagram.id, seed_user.id, true)
+
+  diagram
 end
 
-# Get concepts by name for easier reference
-genserver_concept = Enum.find(concepts, &(&1.name == "GenServer Patterns"))
-supervision_concept = Enum.find(concepts, &(&1.name == "OTP Supervision"))
-kafka_concept = Enum.find(concepts, &(&1.name == "Event-Driven Processing"))
-ml_concept = Enum.find(concepts, &(&1.name == "ML Model Serving"))
-postgres_concept = Enum.find(concepts, &(&1.name == "Database Optimization"))
-infra_concept = Enum.find(concepts, &(&1.name == "Distributed System Infrastructure"))
+IO.puts("Creating diagrams...")
 
-IO.puts("Creating diagrams for each concept...")
-
-# GenServer Patterns diagrams (4 diagrams)
+# GenServer Patterns diagrams
 create_diagram.(
-  genserver_concept.id,
   "GenServer Call vs Cast",
-  "elixir",
-  ["genserver", "concurrency", "otp"],
+  ["genserver", "concurrency", "otp", "elixir"],
   """
   sequenceDiagram
       participant C as Client
@@ -142,14 +107,13 @@ create_diagram.(
   - `cast/2` fires and forgets, useful for updates that don't need confirmation
   - Use call for queries, cast for commands that don't need acknowledgment
   - Calls can timeout if the GenServer is busy
-  """
+  """,
+  :public
 )
 
 create_diagram.(
-  genserver_concept.id,
   "GenServer State Management",
-  "elixir",
-  ["genserver", "state", "functional"],
+  ["genserver", "state", "functional", "elixir"],
   """
   flowchart TD
       A[Client Request] --> B{handle_call/3}
@@ -165,14 +129,13 @@ create_diagram.(
   - Callbacks return `{:reply, response, new_state}` or `{:noreply, new_state}`
   - State transformations are pure functions
   - Old state is garbage collected after callback returns
-  """
+  """,
+  :public
 )
 
 create_diagram.(
-  genserver_concept.id,
   "GenServer Timeout Patterns",
-  "elixir",
-  ["genserver", "timeout", "reliability"],
+  ["genserver", "timeout", "reliability", "elixir"],
   """
   sequenceDiagram
       participant C as Client
@@ -192,14 +155,13 @@ create_diagram.(
   - Can specify custom timeout: `GenServer.call(pid, :msg, 10_000)`
   - Server continues processing even after timeout
   - Client should handle `:timeout` error appropriately
-  """
+  """,
+  :unlisted
 )
 
 create_diagram.(
-  genserver_concept.id,
   "GenServer Initialization Flow",
-  "elixir",
-  ["genserver", "initialization", "otp"],
+  ["genserver", "initialization", "otp", "elixir"],
   """
   sequenceDiagram
       participant S as Supervisor
@@ -223,15 +185,14 @@ create_diagram.(
   - Heavy initialization work blocks supervisor startup
   - Use `{:continue, work}` to defer heavy work to `handle_continue/2`
   - Return `{:stop, reason}` to prevent server from starting
-  """
+  """,
+  :public
 )
 
-# OTP Supervision diagrams (3 diagrams)
+# OTP Supervision diagrams
 create_diagram.(
-  supervision_concept.id,
   "Supervision Tree Structure",
-  "elixir",
-  ["supervisor", "otp", "architecture"],
+  ["supervisor", "otp", "architecture", "elixir"],
   """
   flowchart TD
       A[Application] --> B[Top Supervisor]
@@ -250,14 +211,13 @@ create_diagram.(
   - Each supervisor manages its immediate children
   - Workers are leaf nodes (GenServers, Tasks, etc.)
   - Supervisors can supervise other supervisors
-  """
+  """,
+  :public
 )
 
 create_diagram.(
-  supervision_concept.id,
   "Supervisor Restart Strategies",
-  "elixir",
-  ["supervisor", "fault-tolerance", "strategies"],
+  ["supervisor", "fault-tolerance", "strategies", "elixir"],
   """
   flowchart LR
       A[Child Crashes] --> B{Restart Strategy}
@@ -272,14 +232,13 @@ create_diagram.(
   - `:one_for_all` - Restart all children if any crashes (use when dependent)
   - `:rest_for_one` - Restart crashed child and all started after it (ordered dependencies)
   - Choose based on dependencies between children
-  """
+  """,
+  :public
 )
 
 create_diagram.(
-  supervision_concept.id,
   "Process Crash and Restart Flow",
-  "elixir",
-  ["supervisor", "crash", "restart"],
+  ["supervisor", "crash", "restart", "elixir"],
   """
   sequenceDiagram
       participant S as Supervisor
@@ -304,14 +263,13 @@ create_diagram.(
   - Receives `:EXIT` signal when child crashes
   - Attempts restart based on strategy
   - If `max_restarts` exceeded in `max_seconds`, supervisor shuts down
-  """
+  """,
+  :unlisted
 )
 
-# Event-Driven Processing diagrams (4 diagrams)
+# Event-Driven Processing diagrams
 create_diagram.(
-  kafka_concept.id,
   "Kafka Topic and Consumer Groups",
-  "kafka",
   ["kafka", "messaging", "streaming"],
   """
   flowchart LR
@@ -328,14 +286,13 @@ create_diagram.(
   - Multiple consumer groups can read the same topic independently
   - Partitions enable parallel processing
   - Kafka tracks offset per consumer group per partition
-  """
+  """,
+  :public
 )
 
 create_diagram.(
-  kafka_concept.id,
   "Broadway Pipeline Processing",
-  "kafka",
-  ["broadway", "elixir", "pipeline"],
+  ["broadway", "elixir", "pipeline", "kafka"],
   """
   flowchart LR
       K[Kafka] --> P[Producer]
@@ -357,13 +314,12 @@ create_diagram.(
   - Events are batched automatically
   - Built-in backpressure prevents overload
   - Acknowledgments are handled automatically
-  """
+  """,
+  :public
 )
 
 create_diagram.(
-  kafka_concept.id,
   "Event Sourcing Pattern",
-  "kafka",
   ["event-sourcing", "cqrs", "architecture"],
   """
   flowchart TD
@@ -383,13 +339,12 @@ create_diagram.(
   - Events are the source of truth
   - Multiple projections create different views of the data
   - Can replay events to rebuild state or create new projections
-  """
+  """,
+  :unlisted
 )
 
 create_diagram.(
-  kafka_concept.id,
   "At-Least-Once Delivery Semantics",
-  "kafka",
   ["kafka", "reliability", "delivery"],
   """
   sequenceDiagram
@@ -416,15 +371,14 @@ create_diagram.(
   - On failure, message is redelivered from last committed offset
   - Processing must be idempotent to handle duplicates
   - Use unique IDs to detect and skip duplicate messages
-  """
+  """,
+  :public
 )
 
-# ML Model Serving diagrams (5 diagrams)
+# ML Model Serving diagrams
 create_diagram.(
-  ml_concept.id,
   "Two-Tier Caching Strategy",
-  "ml",
-  ["caching", "ets", "redis"],
+  ["caching", "ets", "redis", "ml"],
   """
   flowchart TD
       R[Request] --> E{ETS Cache Hit?}
@@ -444,14 +398,13 @@ create_diagram.(
   - Redis provides shared cache across nodes (milliseconds)
   - ML inference is slowest fallback (hundreds of milliseconds)
   - Cache keys should include feature versions to avoid stale predictions
-  """
+  """,
+  :public
 )
 
 create_diagram.(
-  ml_concept.id,
   "Circuit Breaker for ML Service",
-  "ml",
-  ["circuit-breaker", "reliability", "resilience"],
+  ["circuit-breaker", "reliability", "resilience", "ml"],
   """
   stateDiagram-v2
       [*] --> Closed
@@ -469,14 +422,13 @@ create_diagram.(
   - **Open**: Too many failures, reject requests immediately with fallback
   - **Half-Open**: After cooldown, test if service recovered
   - Prevents overwhelming a failing service with requests
-  """
+  """,
+  :unlisted
 )
 
 create_diagram.(
-  ml_concept.id,
   "Edge vs Cloud Inference Trade-offs",
-  "ml",
-  ["edge", "cloud", "architecture"],
+  ["edge", "cloud", "architecture", "ml"],
   """
   flowchart LR
       R[Request] --> D{Latency Critical?}
@@ -493,14 +445,13 @@ create_diagram.(
   - **Cloud**: 200-500ms latency, larger models, economies of scale
   - Use edge for real-time decisions (fraud detection, routing)
   - Use cloud for batch processing or when model size matters
-  """
+  """,
+  :public
 )
 
 create_diagram.(
-  ml_concept.id,
   "Model Lifecycle Management",
-  "ml",
-  ["mlops", "lifecycle", "deployment"],
+  ["mlops", "lifecycle", "deployment", "ml"],
   """
   flowchart TD
       D[Data Collection] --> T[Training]
@@ -520,13 +471,12 @@ create_diagram.(
   - Monitor prediction accuracy, latency, and feature drift
   - Retrain periodically or when metrics degrade
   - Use A/B testing before full production rollout
-  """
+  """,
+  :public
 )
 
 create_diagram.(
-  ml_concept.id,
   "Feature Store Architecture",
-  "ml",
   ["features", "ml", "data"],
   """
   flowchart LR
@@ -549,15 +499,14 @@ create_diagram.(
   - **Offline Store**: Historical features for training (S3, BigQuery)
   - Ensures training/serving consistency
   - Reduces feature engineering duplication across teams
-  """
+  """,
+  :unlisted
 )
 
-# Database Optimization diagrams (3 diagrams)
+# Database Optimization diagrams
 create_diagram.(
-  postgres_concept.id,
   "PostgreSQL Index Types",
-  "postgres",
-  ["indexing", "performance", "database"],
+  ["indexing", "performance", "database", "postgres"],
   """
   flowchart TD
       Q[Query] --> I{Index Type}
@@ -573,14 +522,13 @@ create_diagram.(
   - **HASH**: Faster equality checks, no range support
   - **GIN**: JSONB, arrays, full-text search
   - **GIST**: Geometric data, IP ranges, full-text
-  """
+  """,
+  :public
 )
 
 create_diagram.(
-  postgres_concept.id,
   "Query Optimization with EXPLAIN",
-  "postgres",
-  ["explain", "query-planning", "optimization"],
+  ["explain", "query-planning", "optimization", "postgres"],
   """
   flowchart TD
       Q[Slow Query] --> E[EXPLAIN ANALYZE]
@@ -602,14 +550,13 @@ create_diagram.(
   - `EXPLAIN ANALYZE` runs query and shows actual times
   - Look for Seq Scans on large tables (add index)
   - Check join costs (consider statistics update or index)
-  """
+  """,
+  :public
 )
 
 create_diagram.(
-  postgres_concept.id,
   "Table Partitioning Strategy",
-  "postgres",
-  ["partitioning", "scaling", "performance"],
+  ["partitioning", "scaling", "performance", "postgres"],
   """
   flowchart TD
       T[Large Table: events<br/>100M+ rows] --> P[Partition by Date]
@@ -626,15 +573,14 @@ create_diagram.(
   - Queries with partition key only scan relevant partitions
   - Easier maintenance (drop old partitions vs DELETE)
   - Partitioning by month/week common for time-series data
-  """
+  """,
+  :unlisted
 )
 
-# Infrastructure diagrams (4 diagrams)
+# Infrastructure diagrams
 create_diagram.(
-  infra_concept.id,
   "Observability Pipeline",
-  "infrastructure",
-  ["observability", "monitoring", "logs"],
+  ["observability", "monitoring", "logs", "infrastructure"],
   """
   flowchart LR
       A[Application] --> L[Logs]
@@ -655,14 +601,13 @@ create_diagram.(
   - **Metrics**: Time-series data (Prometheus → Grafana)
   - **Traces**: Request flows (Jaeger → Grafana)
   - Correlate using trace IDs across all three
-  """
+  """,
+  :public
 )
 
 create_diagram.(
-  infra_concept.id,
   "Autoscaling Based on Metrics",
-  "infrastructure",
-  ["autoscaling", "kubernetes", "scaling"],
+  ["autoscaling", "kubernetes", "scaling", "infrastructure"],
   """
   flowchart TD
       M[Metrics: CPU, Latency, Queue Depth] --> HPA[Horizontal Pod Autoscaler]
@@ -680,14 +625,13 @@ create_diagram.(
   - Scale up when metrics exceed target for sustained period
   - Scale down when metrics below target (with longer cooldown)
   - Set min/max pod limits to control costs
-  """
+  """,
+  :public
 )
 
 create_diagram.(
-  infra_concept.id,
   "Multi-Layer Fallback Architecture",
-  "infrastructure",
-  ["resilience", "fallback", "architecture"],
+  ["resilience", "fallback", "architecture", "infrastructure"],
   """
   flowchart TD
       R[Request] --> L1{Local Cache}
@@ -707,14 +651,13 @@ create_diagram.(
   - Layer 2: Edge service (fast, regional)
   - Layer 3: Cloud service (slower, centralized)
   - Layer 4: Static fallback (degraded experience)
-  """
+  """,
+  :unlisted
 )
 
 create_diagram.(
-  infra_concept.id,
   "Rate Limiting with Token Bucket",
-  "infrastructure",
-  ["rate-limiting", "api", "throttling"],
+  ["rate-limiting", "api", "throttling", "infrastructure"],
   """
   flowchart TD
       R[Request] --> B{Bucket Has Tokens?}
@@ -732,20 +675,30 @@ create_diagram.(
   - Each request consumes 1 token
   - Tokens refill at steady rate (e.g., 10/sec)
   - Allows bursts up to bucket capacity
-  """
+  """,
+  :public
 )
 
 IO.puts("Diagrams created successfully!")
 
 # Print summary
 total_diagrams = Repo.aggregate(Diagram, :count, :id)
-IO.puts("✓ Created #{length(concepts)} concepts with #{total_diagrams} total diagrams")
+public_count = Repo.aggregate(from(d in Diagram, where: d.visibility == :public), :count, :id)
+unlisted_count = Repo.aggregate(from(d in Diagram, where: d.visibility == :unlisted), :count, :id)
 
-Enum.each(concepts, fn concept ->
-  count = Repo.aggregate(
-    from(d in Diagram, where: d.concept_id == ^concept.id),
-    :count,
-    :id
-  )
-  IO.puts("  - #{concept.name} (#{concept.category}): #{count} diagrams")
+IO.puts("✓ Created #{total_diagrams} diagrams (#{public_count} public, #{unlisted_count} unlisted)")
+IO.puts("✓ All diagrams owned by seed user: #{seed_user.email}")
+
+# Group by tag and show counts
+tag_counts =
+  Repo.all(Diagram)
+  |> Enum.flat_map(& &1.tags)
+  |> Enum.frequencies()
+  |> Enum.sort_by(fn {_tag, count} -> -count end)
+  |> Enum.take(10)
+
+IO.puts("\nTop tags:")
+
+Enum.each(tag_counts, fn {tag, count} ->
+  IO.puts("  - #{tag}: #{count} diagrams")
 end)

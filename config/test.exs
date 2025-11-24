@@ -48,3 +48,16 @@ config :diagram_forge, :ai_client, DiagramForge.MockAIClient
 config :diagram_forge, DiagramForge.AI,
   api_key: "test_api_key",
   model: "gpt-4"
+
+# Configure Cloak for test environment with a static test key
+# This key is ONLY for testing and should never be used in production
+# Generated with: :crypto.strong_rand_bytes(32) |> Base.encode64()
+config :diagram_forge, DiagramForge.Vault,
+  ciphers: [
+    default: {
+      Cloak.Ciphers.AES.GCM,
+      tag: "AES.GCM.V1",
+      key: Base.decode64!("RTr9aMWrNkUp2kzRYfSFyoXXSEh5eMd21hJIL/rdfYc="),
+      iv_length: 12
+    }
+  ]

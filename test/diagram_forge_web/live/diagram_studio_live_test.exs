@@ -217,89 +217,596 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
     end
   end
 
-  # The following tests would be added based on the actual LiveView implementation
-  # These are placeholder tests showing what should be tested once the UI is implemented
+  describe "tag filtering" do
+    test "adds tag to active filter", %{conn: conn} do
+      user = fixture(:user)
+      elixir_diagram = fixture(:diagram, tags: ["elixir"])
+      rust_diagram = fixture(:diagram, tags: ["rust"])
+      Diagrams.assign_diagram_to_user(elixir_diagram.id, user.id, true)
+      Diagrams.assign_diagram_to_user(rust_diagram.id, user.id, true)
 
-  # describe "tag filtering" do
-  #   test "adds tag to active filter", %{conn: conn} do
-  #     user = fixture(:user)
-  #     fixture(:diagram, user: user, tags: ["elixir"])
-  #     fixture(:diagram, user: user, tags: ["rust"])
-  #
-  #     conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
-  #     {:ok, view, _html} = live(conn, ~p"/")
-  #
-  #     # Click tag to add to filter
-  #     view
-  #     |> element("button[phx-click='add_tag_to_filter'][phx-value-tag='elixir']")
-  #     |> render_click()
-  #
-  #     html = render(view)
-  #
-  #     # Verify tag appears in active filter chips
-  #     assert html =~ "elixir"
-  #     # Verify only elixir diagrams shown
-  #   end
-  #
-  #   test "removes tag from filter", %{conn: conn} do
-  #     # Test implementation
-  #   end
-  #
-  #   test "clears all filters", %{conn: conn} do
-  #     # Test implementation
-  #   end
-  # end
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
+      {:ok, view, html} = live(conn, ~p"/")
 
-  # describe "saved filter management" do
-  #   test "saves current filter", %{conn: conn} do
-  #     # Test implementation
-  #   end
-  #
-  #   test "applies saved filter", %{conn: conn} do
-  #     # Test implementation
-  #   end
-  #
-  #   test "deletes saved filter", %{conn: conn} do
-  #     # Test implementation
-  #   end
-  #
-  #   test "pins/unpins filter", %{conn: conn} do
-  #     # Test implementation
-  #   end
-  #
-  #   test "reorders filters", %{conn: conn} do
-  #     # Test implementation
-  #   end
-  # end
+      # Both diagrams should be visible initially
+      assert html =~ elixir_diagram.title
+      assert html =~ rust_diagram.title
 
-  # describe "tag management on diagrams" do
-  #   test "adds tags to diagram", %{conn: conn} do
-  #     # Test implementation
-  #   end
-  #
-  #   test "removes tag from diagram", %{conn: conn} do
-  #     # Test implementation
-  #   end
-  # end
+      # Add "elixir" tag to filter via form submission
+      view
+      |> form("form[phx-submit='add_tag_to_filter']", %{"tag" => "elixir"})
+      |> render_submit()
 
-  # describe "fork diagram with tags" do
-  #   test "forks diagram and copies tags", %{conn: conn} do
-  #     user = fixture(:user)
-  #     original = fixture(:diagram, user: user, tags: ["elixir", "original"])
-  #
-  #     conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
-  #     {:ok, view, _html} = live(conn, ~p"/")
-  #
-  #     view
-  #     |> element("button[phx-click='fork_diagram'][phx-value-id='#{original.id}']")
-  #     |> render_click()
-  #
-  #     # Verify fork was created with tags
-  #     diagrams = Diagrams.list_diagrams()
-  #     assert length(diagrams) == 2
-  #
-  #     forked = Enum.find(diagrams, fn d -> d.id != original.id end)
-  #     assert forked.tags == original.tags
-  #   end
-  # end
+      html = render(view)
+
+      # Verify tag appears in active filter chips
+      assert html =~ "elixir"
+      # Only elixir diagram should be shown
+      assert html =~ elixir_diagram.title
+      refute html =~ rust_diagram.title
+    end
+
+    test "removes tag from filter", %{conn: conn} do
+      user = fixture(:user)
+      elixir_diagram = fixture(:diagram, tags: ["elixir"])
+      rust_diagram = fixture(:diagram, tags: ["rust"])
+      Diagrams.assign_diagram_to_user(elixir_diagram.id, user.id, true)
+      Diagrams.assign_diagram_to_user(rust_diagram.id, user.id, true)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      # Add tag to filter first
+      view
+      |> form("form[phx-submit='add_tag_to_filter']", %{"tag" => "elixir"})
+      |> render_submit()
+
+      # Remove the tag from filter
+      view
+      |> element("button[phx-click='remove_tag_from_filter'][phx-value-tag='elixir']")
+      |> render_click()
+
+      html = render(view)
+
+      # Both diagrams should be visible again
+      assert html =~ elixir_diagram.title
+      assert html =~ rust_diagram.title
+    end
+
+    test "clears all filters", %{conn: conn} do
+      user = fixture(:user)
+      diagram1 = fixture(:diagram, tags: ["elixir"])
+      diagram2 = fixture(:diagram, tags: ["rust"])
+      Diagrams.assign_diagram_to_user(diagram1.id, user.id, true)
+      Diagrams.assign_diagram_to_user(diagram2.id, user.id, true)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      # Add multiple tags to filter
+      view
+      |> form("form[phx-submit='add_tag_to_filter']", %{"tag" => "elixir"})
+      |> render_submit()
+
+      # Clear all filters
+      view
+      |> element("button[phx-click='clear_filter']")
+      |> render_click()
+
+      html = render(view)
+
+      # Both diagrams should be visible
+      assert html =~ diagram1.title
+      assert html =~ diagram2.title
+    end
+
+    test "filters diagrams by multiple tags", %{conn: conn} do
+      user = fixture(:user)
+      both_tags = fixture(:diagram, tags: ["elixir", "phoenix"])
+      elixir_only = fixture(:diagram, tags: ["elixir"])
+      rust_only = fixture(:diagram, tags: ["rust"])
+      Diagrams.assign_diagram_to_user(both_tags.id, user.id, true)
+      Diagrams.assign_diagram_to_user(elixir_only.id, user.id, true)
+      Diagrams.assign_diagram_to_user(rust_only.id, user.id, true)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      # Add first tag
+      view
+      |> form("form[phx-submit='add_tag_to_filter']", %{"tag" => "elixir"})
+      |> render_submit()
+
+      # Add second tag
+      view
+      |> form("form[phx-submit='add_tag_to_filter']", %{"tag" => "phoenix"})
+      |> render_submit()
+
+      html = render(view)
+
+      # Only diagram with both tags should be visible
+      assert html =~ both_tags.title
+      refute html =~ elixir_only.title
+      refute html =~ rust_only.title
+    end
+  end
+
+  describe "saved filter management" do
+    test "saves current filter", %{conn: conn} do
+      user = fixture(:user)
+      diagram = fixture(:diagram, tags: ["elixir"])
+      Diagrams.assign_diagram_to_user(diagram.id, user.id, true)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      # Add tag to create an active filter
+      view
+      |> form("form[phx-submit='add_tag_to_filter']", %{"tag" => "elixir"})
+      |> render_submit()
+
+      # Show the save filter modal
+      view
+      |> element("button[phx-click='show_save_filter_modal']")
+      |> render_click()
+
+      # Save the filter
+      view
+      |> form("form[phx-submit='save_current_filter']", %{"name" => "My Elixir Filter"})
+      |> render_submit()
+
+      html = render(view)
+
+      # Verify filter was saved (flash message)
+      assert html =~ "Filter saved successfully"
+
+      # Verify filter exists in database
+      filters = Diagrams.list_saved_filters(user.id)
+      assert length(filters) == 1
+      assert hd(filters).name == "My Elixir Filter"
+      assert hd(filters).tag_filter == ["elixir"]
+    end
+
+    test "applies saved filter", %{conn: conn} do
+      user = fixture(:user)
+      diagram1 = fixture(:diagram, tags: ["elixir"])
+      diagram2 = fixture(:diagram, tags: ["rust"])
+      Diagrams.assign_diagram_to_user(diagram1.id, user.id, true)
+      Diagrams.assign_diagram_to_user(diagram2.id, user.id, true)
+
+      # Create a saved filter
+      {:ok, filter} =
+        Diagrams.create_saved_filter(
+          %{name: "Elixir Only", tag_filter: ["elixir"], is_pinned: true},
+          user.id
+        )
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      # Apply the saved filter
+      view
+      |> element("button[phx-click='apply_saved_filter'][phx-value-id='#{filter.id}']")
+      |> render_click()
+
+      html = render(view)
+
+      # Only elixir diagram should be visible
+      assert html =~ diagram1.title
+      refute html =~ diagram2.title
+    end
+
+    test "deletes saved filter", %{conn: conn} do
+      user = fixture(:user)
+
+      # Create a saved filter
+      {:ok, filter} =
+        Diagrams.create_saved_filter(
+          %{name: "To Delete", tag_filter: ["test"], is_pinned: true},
+          user.id
+        )
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
+      {:ok, view, html} = live(conn, ~p"/")
+
+      # Filter should be visible
+      assert html =~ "To Delete"
+
+      # Delete the filter
+      view
+      |> element("button[phx-click='delete_filter'][phx-value-id='#{filter.id}']")
+      |> render_click()
+
+      html = render(view)
+
+      # Verify filter was deleted (flash message)
+      assert html =~ "Filter deleted successfully"
+
+      # Verify filter is gone from database
+      filters = Diagrams.list_saved_filters(user.id)
+      assert filters == []
+    end
+
+    test "pins and unpins filter", %{conn: conn} do
+      user = fixture(:user)
+
+      # Create an unpinned filter
+      {:ok, _filter} =
+        Diagrams.create_saved_filter(
+          %{name: "Toggle Pin", tag_filter: ["test"], is_pinned: false},
+          user.id
+        )
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      # Filter should not be in pinned section initially
+      refute render(view) =~ "Toggle Pin"
+
+      # Pin the filter
+      # First we need to make it visible - since it's not pinned, it won't show in UI
+      # Let's create it as pinned first and test unpinning
+      {:ok, pinned_filter} =
+        Diagrams.create_saved_filter(
+          %{name: "Pinned Filter", tag_filter: ["elixir"], is_pinned: true},
+          user.id
+        )
+
+      {:ok, view, html} = live(conn, ~p"/")
+
+      # Filter should be visible in pinned section
+      assert html =~ "Pinned Filter"
+
+      # Toggle pin (unpin it)
+      view
+      |> element("button[phx-click='toggle_filter_pin'][phx-value-id='#{pinned_filter.id}']")
+      |> render_click()
+
+      # Verify filter was unpinned
+      updated_filter = Diagrams.get_saved_filter!(pinned_filter.id)
+      refute updated_filter.is_pinned
+    end
+  end
+
+  describe "tag management on diagrams" do
+    test "adds tags to diagram via edit form", %{conn: conn} do
+      user = fixture(:user)
+      diagram = fixture(:diagram, tags: ["elixir"])
+      Diagrams.assign_diagram_to_user(diagram.id, user.id, true)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      # Select the diagram first
+      view
+      |> element("div[phx-click='select_diagram'][phx-value-id='#{diagram.id}']")
+      |> render_click()
+
+      # Open edit modal
+      view
+      |> element("button[phx-click='edit_diagram'][phx-value-id='#{diagram.id}']")
+      |> render_click()
+
+      # Save with new tags
+      view
+      |> form("#edit-diagram-form", %{
+        "diagram" => %{
+          "title" => diagram.title,
+          "diagram_source" => diagram.diagram_source,
+          "tags" => "elixir, phoenix, otp"
+        }
+      })
+      |> render_submit()
+
+      html = render(view)
+
+      # Verify success message
+      assert html =~ "Diagram updated successfully"
+
+      # Verify tags were added
+      updated = Diagrams.get_diagram!(diagram.id)
+      assert "elixir" in updated.tags
+      assert "phoenix" in updated.tags
+      assert "otp" in updated.tags
+    end
+
+    test "removes tag from diagram via edit form", %{conn: conn} do
+      user = fixture(:user)
+      diagram = fixture(:diagram, tags: ["elixir", "phoenix", "otp"])
+      Diagrams.assign_diagram_to_user(diagram.id, user.id, true)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      # Select the diagram
+      view
+      |> element("div[phx-click='select_diagram'][phx-value-id='#{diagram.id}']")
+      |> render_click()
+
+      # Open edit modal
+      view
+      |> element("button[phx-click='edit_diagram'][phx-value-id='#{diagram.id}']")
+      |> render_click()
+
+      # Save with fewer tags
+      view
+      |> form("#edit-diagram-form", %{
+        "diagram" => %{
+          "title" => diagram.title,
+          "diagram_source" => diagram.diagram_source,
+          "tags" => "elixir"
+        }
+      })
+      |> render_submit()
+
+      # Verify tags were updated
+      updated = Diagrams.get_diagram!(diagram.id)
+      assert updated.tags == ["elixir"]
+    end
+  end
+
+  describe "fork diagram with tags" do
+    test "forks diagram and copies tags", %{conn: conn} do
+      user = fixture(:user)
+      original = fixture(:diagram, tags: ["elixir", "original"])
+      Diagrams.assign_diagram_to_user(original.id, user.id, true)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      # Select the diagram first
+      view
+      |> element("div[phx-click='select_diagram'][phx-value-id='#{original.id}']")
+      |> render_click()
+
+      # Fork the diagram
+      view
+      |> element("button[phx-click='fork_diagram'][phx-value-id='#{original.id}']")
+      |> render_click()
+
+      html = render(view)
+
+      # Verify success message
+      assert html =~ "Diagram forked successfully"
+
+      # Verify fork was created with same tags
+      owned_diagrams = Diagrams.list_owned_diagrams(user.id)
+      assert length(owned_diagrams) == 2
+
+      forked = Enum.find(owned_diagrams, fn d -> d.id != original.id end)
+      assert forked.tags == original.tags
+      assert forked.forked_from_id == original.id
+    end
+
+    test "fork preserves original diagram tags after modification", %{conn: conn} do
+      user = fixture(:user)
+      original = fixture(:diagram, tags: ["elixir", "phoenix"])
+      Diagrams.assign_diagram_to_user(original.id, user.id, true)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      # Select and fork
+      view
+      |> element("div[phx-click='select_diagram'][phx-value-id='#{original.id}']")
+      |> render_click()
+
+      view
+      |> element("button[phx-click='fork_diagram'][phx-value-id='#{original.id}']")
+      |> render_click()
+
+      # Get the forked diagram
+      owned_diagrams = Diagrams.list_owned_diagrams(user.id)
+      forked = Enum.find(owned_diagrams, fn d -> d.id != original.id end)
+
+      # Modify the forked diagram's tags
+      {:ok, _} = Diagrams.add_tags(forked, ["new-tag"], user.id)
+
+      # Original should still have original tags
+      original_refreshed = Diagrams.get_diagram!(original.id)
+      assert original_refreshed.tags == ["elixir", "phoenix"]
+
+      # Forked should have the new tag
+      forked_refreshed = Diagrams.get_diagram!(forked.id)
+      assert "new-tag" in forked_refreshed.tags
+    end
+  end
+
+  describe "bookmark diagram" do
+    test "bookmarks another user's public diagram", %{conn: conn} do
+      owner = fixture(:user)
+      viewer = fixture(:user)
+      diagram = fixture(:diagram, tags: ["shared"], visibility: :public)
+      Diagrams.assign_diagram_to_user(diagram.id, owner.id, true)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: viewer.id})
+      {:ok, view, _html} = live(conn, ~p"/d/#{diagram.id}")
+
+      # Bookmark the diagram
+      view
+      |> element("button[phx-click='bookmark_diagram'][phx-value-id='#{diagram.id}']")
+      |> render_click()
+
+      html = render(view)
+
+      # Verify success message
+      assert html =~ "Diagram bookmarked successfully"
+
+      # Verify bookmark exists
+      bookmarked = Diagrams.list_bookmarked_diagrams(viewer.id)
+      assert length(bookmarked) == 1
+      assert hd(bookmarked).id == diagram.id
+    end
+
+    test "removes bookmark from diagram", %{conn: conn} do
+      owner = fixture(:user)
+      viewer = fixture(:user)
+      diagram = fixture(:diagram, tags: ["shared"], visibility: :public)
+      Diagrams.assign_diagram_to_user(diagram.id, owner.id, true)
+      Diagrams.bookmark_diagram(diagram.id, viewer.id)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: viewer.id})
+      {:ok, view, _html} = live(conn, ~p"/d/#{diagram.id}")
+
+      # Remove the bookmark
+      view
+      |> element("button[phx-click='remove_bookmark'][phx-value-id='#{diagram.id}']")
+      |> render_click()
+
+      html = render(view)
+
+      # Verify success message
+      assert html =~ "removed from your collection"
+
+      # Verify bookmark is gone
+      bookmarked = Diagrams.list_bookmarked_diagrams(viewer.id)
+      assert bookmarked == []
+    end
+  end
+
+  describe "visibility controls" do
+    test "owner can change diagram visibility", %{conn: conn} do
+      user = fixture(:user)
+      diagram = fixture(:diagram, visibility: :private)
+      Diagrams.assign_diagram_to_user(diagram.id, user.id, true)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
+      {:ok, view, _html} = live(conn, ~p"/d/#{diagram.id}")
+
+      # Open edit modal
+      view
+      |> element("button[phx-click='edit_diagram'][phx-value-id='#{diagram.id}']")
+      |> render_click()
+
+      # Change visibility to public
+      view
+      |> form("#edit-diagram-form", %{
+        "diagram" => %{
+          "title" => diagram.title,
+          "diagram_source" => diagram.diagram_source,
+          "visibility" => "public"
+        }
+      })
+      |> render_submit()
+
+      # Verify visibility was changed
+      updated = Diagrams.get_diagram!(diagram.id)
+      assert updated.visibility == :public
+    end
+
+    test "non-owner cannot view private diagram", %{conn: conn} do
+      owner = fixture(:user)
+      viewer = fixture(:user)
+      diagram = fixture(:diagram, visibility: :private)
+      Diagrams.assign_diagram_to_user(diagram.id, owner.id, true)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: viewer.id})
+
+      # Should redirect with error flash when trying to view private diagram
+      assert {:error, {:live_redirect, %{to: "/", flash: flash}}} =
+               live(conn, ~p"/d/#{diagram.id}")
+
+      assert flash["error"] =~ "permission"
+    end
+
+    test "anyone can view unlisted diagram with direct link", %{conn: conn} do
+      owner = fixture(:user)
+      viewer = fixture(:user)
+      diagram = fixture(:diagram, visibility: :unlisted)
+      Diagrams.assign_diagram_to_user(diagram.id, owner.id, true)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: viewer.id})
+      {:ok, _view, html} = live(conn, ~p"/d/#{diagram.id}")
+
+      # Should be able to see the diagram
+      assert html =~ diagram.title
+      assert html =~ "Unlisted"
+    end
+
+    test "public diagrams appear in public section when enabled", %{conn: conn} do
+      owner = fixture(:user)
+      viewer = fixture(:user, show_public_diagrams: true)
+      public_diagram = fixture(:diagram, visibility: :public)
+      Diagrams.assign_diagram_to_user(public_diagram.id, owner.id, true)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: viewer.id})
+      {:ok, _view, html} = live(conn, ~p"/")
+
+      # Public diagram should be visible in public section
+      assert html =~ public_diagram.title
+    end
+  end
+
+  describe "authorization edge cases" do
+    test "non-owner cannot edit diagram", %{conn: conn} do
+      owner = fixture(:user)
+      other = fixture(:user)
+      diagram = fixture(:diagram, visibility: :public)
+      Diagrams.assign_diagram_to_user(diagram.id, owner.id, true)
+
+      conn = Plug.Test.init_test_session(conn, %{user_id: other.id})
+      {:ok, view, _html} = live(conn, ~p"/d/#{diagram.id}")
+
+      # Non-owners should not see the edit button at all
+      refute has_element?(view, "button[phx-click='edit_diagram'][phx-value-id='#{diagram.id}']")
+    end
+
+    test "non-owner cannot delete diagram", %{conn: conn} do
+      owner = fixture(:user)
+      other = fixture(:user)
+      diagram = fixture(:diagram, visibility: :public)
+      Diagrams.assign_diagram_to_user(diagram.id, owner.id, true)
+
+      # Attempt to delete via direct event (simulating tampering)
+      conn = Plug.Test.init_test_session(conn, %{user_id: other.id})
+      {:ok, view, _html} = live(conn, ~p"/d/#{diagram.id}")
+
+      # Send delete event directly
+      render_click(view, "delete_diagram", %{"id" => diagram.id})
+
+      html = render(view)
+      assert html =~ "Unauthorized"
+
+      # Diagram should still exist
+      assert Diagrams.get_diagram!(diagram.id)
+    end
+
+    test "unauthenticated user cannot save filter", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      # Try to add a tag - should work for filtering
+      view
+      |> form("form[phx-submit='add_tag_to_filter']", %{"tag" => "elixir"})
+      |> render_submit()
+
+      html = render(view)
+
+      # Save button should not be visible for unauthenticated users
+      refute html =~ "Save Current Filter"
+    end
+
+    test "user can only delete their own filters", %{conn: conn} do
+      user1 = fixture(:user)
+      user2 = fixture(:user)
+
+      # Create filter for user1
+      {:ok, filter} =
+        Diagrams.create_saved_filter(
+          %{name: "User1 Filter", tag_filter: ["test"], is_pinned: true},
+          user1.id
+        )
+
+      # User2 tries to delete user1's filter via direct event
+      conn = Plug.Test.init_test_session(conn, %{user_id: user2.id})
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      render_click(view, "delete_filter", %{"id" => filter.id})
+
+      html = render(view)
+      assert html =~ "Unauthorized"
+
+      # Filter should still exist
+      assert Diagrams.get_saved_filter!(filter.id)
+    end
+  end
 end

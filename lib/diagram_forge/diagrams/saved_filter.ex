@@ -33,8 +33,18 @@ defmodule DiagramForge.Diagrams.SavedFilter do
   def changeset(saved_filter, attrs) do
     saved_filter
     |> cast(attrs, [:user_id, :name, :tag_filter, :is_pinned, :sort_order])
-    |> validate_required([:user_id, :name, :tag_filter, :is_pinned, :sort_order])
+    |> validate_required([:user_id, :name])
+    |> put_default(:tag_filter, [])
+    |> put_default(:is_pinned, true)
+    |> put_default(:sort_order, 0)
     |> unique_constraint([:user_id, :name])
     |> foreign_key_constraint(:user_id)
+  end
+
+  defp put_default(changeset, field, default_value) do
+    case get_field(changeset, field) do
+      nil -> put_change(changeset, field, default_value)
+      _ -> changeset
+    end
   end
 end

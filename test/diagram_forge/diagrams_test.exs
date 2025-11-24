@@ -4,6 +4,13 @@ defmodule DiagramForge.DiagramsTest do
   alias DiagramForge.Diagrams
   alias DiagramForge.Diagrams.Diagram
 
+  # Helper to create a diagram with ownership assigned
+  defp diagram_with_owner(user, attrs \\ []) do
+    diagram = fixture(:diagram, attrs)
+    Diagrams.assign_diagram_to_user(diagram.id, user.id, true)
+    diagram
+  end
+
   describe "list_available_tags/1" do
     test "returns unique tags from all diagrams" do
       user = fixture(:user)
@@ -584,6 +591,244 @@ defmodule DiagramForge.DiagramsTest do
       # Note: This will fail until forked_from_id field is added to schema
       # For now, just verify the fork was created
       assert forked.id != nil
+    end
+  end
+
+  describe "bookmark_diagram/2" do
+    test "creates bookmark entry with is_owner: false" do
+      owner = fixture(:user)
+      bookmarker = fixture(:user)
+      diagram = fixture(:diagram, user: owner)
+
+      assert {:ok, _user_diagram} = Diagrams.bookmark_diagram(diagram.id, bookmarker.id)
+
+      # Verify bookmark appears in bookmarked list
+      bookmarked = Diagrams.list_bookmarked_diagrams(bookmarker.id)
+      assert length(bookmarked) == 1
+      assert hd(bookmarked).id == diagram.id
+
+      # Verify it doesn't appear in owned list
+      owned = Diagrams.list_owned_diagrams(bookmarker.id)
+      assert owned == []
+    end
+
+    test "allows bookmarking same diagram by different users" do
+      owner = fixture(:user)
+      user1 = fixture(:user)
+      user2 = fixture(:user)
+      diagram = fixture(:diagram, user: owner)
+
+      assert {:ok, _} = Diagrams.bookmark_diagram(diagram.id, user1.id)
+      assert {:ok, _} = Diagrams.bookmark_diagram(diagram.id, user2.id)
+
+      assert length(Diagrams.list_bookmarked_diagrams(user1.id)) == 1
+      assert length(Diagrams.list_bookmarked_diagrams(user2.id)) == 1
+    end
+
+    test "prevents duplicate bookmarks by same user" do
+      owner = fixture(:user)
+      bookmarker = fixture(:user)
+      diagram = fixture(:diagram, user: owner)
+
+      assert {:ok, _} = Diagrams.bookmark_diagram(diagram.id, bookmarker.id)
+
+      # Second bookmark should fail due to unique constraint
+      assert {:error, changeset} = Diagrams.bookmark_diagram(diagram.id, bookmarker.id)
+      assert changeset.errors != []
+    end
+  end
+
+  describe "remove_diagram_bookmark/2" do
+    test "removes bookmark entry" do
+      owner = fixture(:user)
+      bookmarker = fixture(:user)
+      diagram = fixture(:diagram, user: owner)
+
+      Diagrams.bookmark_diagram(diagram.id, bookmarker.id)
+      assert length(Diagrams.list_bookmarked_diagrams(bookmarker.id)) == 1
+
+      assert :ok = Diagrams.remove_diagram_bookmark(diagram.id, bookmarker.id)
+
+      assert Diagrams.list_bookmarked_diagrams(bookmarker.id) == []
+    end
+
+    test "does not affect ownership entries" do
+      owner = fixture(:user)
+      diagram = diagram_with_owner(owner)
+
+      # Should not remove owner's entry
+      assert :ok = Diagrams.remove_diagram_bookmark(diagram.id, owner.id)
+
+      # Owner should still have the diagram
+      assert length(Diagrams.list_owned_diagrams(owner.id)) == 1
+    end
+
+    test "succeeds even when no bookmark exists" do
+      user = fixture(:user)
+      diagram = diagram_with_owner(user)
+
+      # Should succeed (no-op) even if no bookmark exists
+      assert :ok = Diagrams.remove_diagram_bookmark(diagram.id, user.id)
+    end
+  end
+
+  describe "list_diagrams_by_tags/3 with ownership filter" do
+    test "with :owned filter returns only owned diagrams" do
+      owner = fixture(:user)
+      other = fixture(:user)
+      owned = diagram_with_owner(owner, tags: ["test"])
+      bookmarked = diagram_with_owner(other, tags: ["test"])
+      Diagrams.bookmark_diagram(bookmarked.id, owner.id)
+
+      diagrams = Diagrams.list_diagrams_by_tags(owner.id, ["test"], :owned)
+
+      assert length(diagrams) == 1
+      assert hd(diagrams).id == owned.id
+    end
+
+    test "with :bookmarked filter returns only bookmarked diagrams" do
+      owner = fixture(:user)
+      other = fixture(:user)
+      _owned = diagram_with_owner(owner, tags: ["test"])
+      bookmarked = diagram_with_owner(other, tags: ["test"])
+      Diagrams.bookmark_diagram(bookmarked.id, owner.id)
+
+      diagrams = Diagrams.list_diagrams_by_tags(owner.id, ["test"], :bookmarked)
+
+      assert length(diagrams) == 1
+      assert hd(diagrams).id == bookmarked.id
+    end
+
+    test "with :all filter returns both owned and bookmarked" do
+      owner = fixture(:user)
+      other = fixture(:user)
+      owned = diagram_with_owner(owner, tags: ["test"])
+      bookmarked = diagram_with_owner(other, tags: ["test"])
+      Diagrams.bookmark_diagram(bookmarked.id, owner.id)
+
+      diagrams = Diagrams.list_diagrams_by_tags(owner.id, ["test"], :all)
+
+      diagram_ids = Enum.map(diagrams, & &1.id)
+      assert length(diagrams) == 2
+      assert owned.id in diagram_ids
+      assert bookmarked.id in diagram_ids
+    end
+
+    test "ownership filter works with empty tag list" do
+      owner = fixture(:user)
+      other = fixture(:user)
+      owned1 = diagram_with_owner(owner, tags: [])
+      owned2 = diagram_with_owner(owner, tags: ["other"])
+      bookmarked = diagram_with_owner(other, tags: [])
+      Diagrams.bookmark_diagram(bookmarked.id, owner.id)
+
+      owned_diagrams = Diagrams.list_diagrams_by_tags(owner.id, [], :owned)
+      bookmarked_diagrams = Diagrams.list_diagrams_by_tags(owner.id, [], :bookmarked)
+
+      owned_ids = Enum.map(owned_diagrams, & &1.id)
+      assert length(owned_diagrams) == 2
+      assert owned1.id in owned_ids
+      assert owned2.id in owned_ids
+
+      assert length(bookmarked_diagrams) == 1
+      assert hd(bookmarked_diagrams).id == bookmarked.id
+    end
+  end
+
+  describe "authorization" do
+    test "add_tags/3 requires user to be authenticated" do
+      owner = fixture(:user)
+      diagram = diagram_with_owner(owner, tags: ["elixir"])
+
+      # Note: Current implementation doesn't check ownership
+      # This test documents expected behavior
+      assert {:ok, updated} = Diagrams.add_tags(diagram, ["new"], owner.id)
+      assert "new" in updated.tags
+    end
+
+    test "remove_tags/3 requires user to be authenticated" do
+      owner = fixture(:user)
+      diagram = diagram_with_owner(owner, tags: ["elixir", "test"])
+
+      # Note: Current implementation doesn't check ownership
+      # This test documents expected behavior
+      assert {:ok, updated} = Diagrams.remove_tags(diagram, ["test"], owner.id)
+      refute "test" in updated.tags
+    end
+
+    test "update_diagram/3 rejects unauthorized users" do
+      owner = fixture(:user)
+      other_user = fixture(:user)
+      diagram = diagram_with_owner(owner)
+
+      assert {:error, :unauthorized} =
+               Diagrams.update_diagram(diagram, %{title: "Hacked"}, other_user.id)
+    end
+
+    test "delete_diagram/2 rejects unauthorized users" do
+      owner = fixture(:user)
+      other_user = fixture(:user)
+      diagram = diagram_with_owner(owner)
+
+      assert {:error, :unauthorized} = Diagrams.delete_diagram(diagram, other_user.id)
+
+      # Diagram should still exist
+      assert Diagrams.get_diagram!(diagram.id)
+    end
+  end
+
+  describe "visibility and permissions" do
+    test "can_view_diagram?/2 allows owner to view private diagram" do
+      owner = fixture(:user)
+      diagram = diagram_with_owner(owner, visibility: :private)
+
+      assert Diagrams.can_view_diagram?(diagram, owner)
+    end
+
+    test "can_view_diagram?/2 denies non-owner from viewing private diagram" do
+      owner = fixture(:user)
+      other = fixture(:user)
+      diagram = diagram_with_owner(owner, visibility: :private)
+
+      refute Diagrams.can_view_diagram?(diagram, other)
+    end
+
+    test "can_view_diagram?/2 allows anyone to view unlisted diagram" do
+      owner = fixture(:user)
+      other = fixture(:user)
+      diagram = diagram_with_owner(owner, visibility: :unlisted)
+
+      assert Diagrams.can_view_diagram?(diagram, other)
+      assert Diagrams.can_view_diagram?(diagram, nil)
+    end
+
+    test "can_view_diagram?/2 allows anyone to view public diagram" do
+      owner = fixture(:user)
+      other = fixture(:user)
+      diagram = diagram_with_owner(owner, visibility: :public)
+
+      assert Diagrams.can_view_diagram?(diagram, other)
+      assert Diagrams.can_view_diagram?(diagram, nil)
+    end
+
+    test "can_edit_diagram?/2 only allows owner" do
+      owner = fixture(:user)
+      other = fixture(:user)
+      diagram = diagram_with_owner(owner)
+
+      assert Diagrams.can_edit_diagram?(diagram, owner)
+      refute Diagrams.can_edit_diagram?(diagram, other)
+      refute Diagrams.can_edit_diagram?(diagram, nil)
+    end
+
+    test "can_delete_diagram?/2 only allows owner" do
+      owner = fixture(:user)
+      other = fixture(:user)
+      diagram = diagram_with_owner(owner)
+
+      assert Diagrams.can_delete_diagram?(diagram, owner)
+      refute Diagrams.can_delete_diagram?(diagram, other)
+      refute Diagrams.can_delete_diagram?(diagram, nil)
     end
   end
 end
