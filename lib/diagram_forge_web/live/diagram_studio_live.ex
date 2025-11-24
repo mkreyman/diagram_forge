@@ -403,6 +403,68 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     end
   end
 
+  # Filter management handlers
+
+  @impl true
+  def handle_event("edit_filter", %{"id" => id}, socket) do
+    filter = Diagrams.get_saved_filter!(id)
+    {:noreply, assign(socket, :editing_filter, filter)}
+  end
+
+  @impl true
+  def handle_event("cancel_edit_filter", _params, socket) do
+    {:noreply, assign(socket, :editing_filter, nil)}
+  end
+
+  @impl true
+  def handle_event("save_filter_edit", %{"filter" => params}, socket) do
+    filter = socket.assigns.editing_filter
+    user_id = socket.assigns.current_user.id
+
+    # Convert tags from comma-separated string to array if present
+    params =
+      if tags_str = params["tags"] do
+        tags = String.split(tags_str, ",") |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+        Map.put(params, "tags", tags)
+      else
+        params
+      end
+
+    case Diagrams.update_saved_filter(filter, params, user_id) do
+      {:ok, _updated} ->
+        socket =
+          socket
+          |> assign(:editing_filter, nil)
+          |> load_filters()
+          |> put_flash(:info, "Filter updated successfully")
+
+        {:noreply, socket}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:noreply, assign(socket, :filter_changeset, changeset)}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "Unauthorized")}
+    end
+  end
+
+  @impl true
+  def handle_event("reorder_filters", %{"ids" => ids}, socket) do
+    user_id = socket.assigns.current_user.id
+
+    case Diagrams.reorder_saved_filters(ids, user_id) do
+      {:ok, _} ->
+        socket =
+          socket
+          |> load_filters()
+
+        {:noreply, socket}
+
+      {:error, :unauthorized} ->
+        {:noreply, put_flash(socket, :error, "Unauthorized")}
+    end
+  end
+
   # Other event handlers
 
   @impl true
@@ -941,6 +1003,15 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                       <div class="flex gap-1">
                         <button
                           type="button"
+                          phx-click="edit_filter"
+                          phx-value-id={filter.id}
+                          class="p-1 hover:bg-blue-900/50 rounded text-xs text-blue-400"
+                          title="Edit"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          type="button"
                           phx-click="toggle_filter_pin"
                           phx-value-id={filter.id}
                           class="p-1 hover:bg-slate-700 rounded text-xs"
@@ -1462,6 +1533,56 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                 <button
                   type="button"
                   phx-click="cancel_edit_diagram"
+                  class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded transition"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      <% end %>
+
+      <%!-- Edit Filter Modal --%>
+      <%= if @editing_filter do %>
+        <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div class="bg-slate-900 rounded-lg p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto mx-4">
+            <h2 class="text-2xl font-bold mb-4">Edit Filter</h2>
+
+            <form phx-submit="save_filter_edit" id="edit-filter-form" class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium mb-2">Filter Name</label>
+                <input
+                  type="text"
+                  name="filter[name]"
+                  value={@editing_filter.name}
+                  required
+                  class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium mb-2">Tags (comma-separated)</label>
+                <input
+                  type="text"
+                  name="filter[tags]"
+                  value={Enum.join(@editing_filter.tag_filter, ", ")}
+                  required
+                  placeholder="elixir, phoenix, otp"
+                  class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div class="flex justify-end gap-2 mt-6">
+                <button
+                  type="button"
+                  phx-click="cancel_edit_filter"
                   class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded transition"
                 >
                   Cancel
