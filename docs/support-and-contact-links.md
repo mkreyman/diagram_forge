@@ -21,12 +21,12 @@ Support this project → GitHub | Stripe    ·    Get in touch
 ### Footer
 
 ```
-© 2025 DiagramForge · Terms of Service · Privacy Policy · Support
+© 2025 DiagramForge · Terms of Service · Privacy Policy · Report an Issue
 ```
 
 - **Terms of Service** → `/terms` (needs to be created)
 - **Privacy Policy** → `/privacy` (needs to be created)
-- **Support** → GitHub Issues
+- **Report an Issue** → GitHub Issues
 
 ---
 
@@ -127,7 +127,7 @@ For one-time tips with customer-chosen amount:
         rel="noopener"
         class="hover:text-slate-300 transition"
       >
-        Support
+        Report an Issue
       </a>
     </div>
   </div>

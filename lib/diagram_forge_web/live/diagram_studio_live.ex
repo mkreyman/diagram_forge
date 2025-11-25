@@ -2071,7 +2071,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
               rel="noopener"
               class="hover:text-slate-300 transition"
             >
-              Support
+              Report an Issue
             </a>
           </div>
         </div>
