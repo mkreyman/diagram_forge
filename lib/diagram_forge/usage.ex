@@ -312,35 +312,43 @@ defmodule DiagramForge.Usage do
   @doc """
   Gets daily cost breakdown for a custom date range.
   Calculates cost from aggregated tokens using current pricing.
+  Returns all dates in range, with zeros for days without usage.
   """
   def get_daily_costs_for_range(start_date, end_date) do
     # Get per-day, per-model data so we can calculate costs accurately
-    DailyAggregate
-    |> where([d], d.date >= ^start_date and d.date <= ^end_date)
-    |> group_by([d], [d.date, d.model_id])
-    |> select([d], %{
-      date: d.date,
-      model_id: d.model_id,
-      input_tokens: sum(d.input_tokens),
-      output_tokens: sum(d.output_tokens),
-      request_count: sum(d.request_count)
-    })
-    |> Repo.all()
-    # Calculate cost for each model's daily usage
-    |> Enum.map(fn row ->
-      cost_cents = calculate_cost_for_tokens(row.model_id, row.input_tokens, row.output_tokens)
-      Map.put(row, :cost_cents, cost_cents)
+    daily_data =
+      DailyAggregate
+      |> where([d], d.date >= ^start_date and d.date <= ^end_date)
+      |> group_by([d], [d.date, d.model_id])
+      |> select([d], %{
+        date: d.date,
+        model_id: d.model_id,
+        input_tokens: sum(d.input_tokens),
+        output_tokens: sum(d.output_tokens),
+        request_count: sum(d.request_count)
+      })
+      |> Repo.all()
+      # Calculate cost for each model's daily usage
+      |> Enum.map(fn row ->
+        cost_cents = calculate_cost_for_tokens(row.model_id, row.input_tokens, row.output_tokens)
+        Map.put(row, :cost_cents, cost_cents)
+      end)
+      # Aggregate by date
+      |> Enum.group_by(& &1.date)
+      |> Map.new(fn {date, rows} ->
+        {date,
+         %{
+           date: date,
+           cost_cents: Enum.sum(Enum.map(rows, & &1.cost_cents)),
+           request_count: Enum.sum(Enum.map(rows, & &1.request_count))
+         }}
+      end)
+
+    # Generate all dates in range and merge with actual data
+    Date.range(start_date, end_date)
+    |> Enum.map(fn date ->
+      Map.get(daily_data, date, %{date: date, cost_cents: 0, request_count: 0})
     end)
-    # Aggregate by date
-    |> Enum.group_by(& &1.date)
-    |> Enum.map(fn {date, rows} ->
-      %{
-        date: date,
-        cost_cents: Enum.sum(Enum.map(rows, & &1.cost_cents)),
-        request_count: Enum.sum(Enum.map(rows, & &1.request_count))
-      }
-    end)
-    |> Enum.sort_by(& &1.date, Date)
   end
 
   @doc """
