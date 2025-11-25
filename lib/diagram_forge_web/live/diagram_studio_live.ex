@@ -371,10 +371,11 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
       end
 
     case Diagrams.update_diagram(diagram, params, user_id) do
-      {:ok, _updated} ->
+      {:ok, updated} ->
         socket =
           socket
           |> assign(:editing_diagram, nil)
+          |> assign(:selected_diagram, updated)
           |> load_diagrams()
           |> load_tags()
           |> put_flash(:info, "Diagram updated successfully")
