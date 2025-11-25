@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content={get_csrf_token()} />
+    <link rel="icon" type="image/png" href={~p"/images/favicon.png"} />
+    <.live_title suffix=" - DiagramForge Admin">
+      {assigns[:page_title] || "Admin"}
+    </.live_title>
+    <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
+    <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
+    </script>
+    <script>
+      (() => {
+        const setTheme = (theme) => {
+          if (theme === "system") {
+            localStorage.removeItem("phx:theme");
+            document.documentElement.removeAttribute("data-theme");
+          } else {
+            localStorage.setItem("phx:theme", theme);
+            document.documentElement.setAttribute("data-theme", theme);
+          }
+        };
+        if (!document.documentElement.hasAttribute("data-theme")) {
+          setTheme(localStorage.getItem("phx:theme") || "system");
+        }
+        window.addEventListener("storage", (e) => e.key === "phx:theme" && setTheme(e.newValue || "system"));
+
+        window.addEventListener("phx:set-theme", (e) => setTheme(e.target.dataset.phxTheme));
+      })();
+    </script>
+  </head>
+  <body class="h-full bg-base-200 antialiased">
+    <div class="min-h-full">
+      <nav class="bg-base-100 border-b border-base-300 shadow-sm">
+        <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div class="flex h-16 items-center justify-between">
+            <div class="flex items-center">
+              <div class="shrink-0">
+                <a href="/admin" class="text-xl font-bold text-primary">
+                  DiagramForge Admin
+                </a>
+              </div>
+              <div class="ml-10 hidden md:block">
+                <div class="flex items-baseline space-x-1">
+                  <.admin_nav_link navigate={~p"/admin/users"}>
+                    Users
+                  </.admin_nav_link>
+                  <.admin_nav_link navigate={~p"/admin/diagrams"}>
+                    Diagrams
+                  </.admin_nav_link>
+                  <.admin_nav_link navigate={~p"/admin/documents"}>
+                    Documents
+                  </.admin_nav_link>
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center gap-4">
+              <div class="text-sm text-base-content/70">
+                {if assigns[:current_user], do: assigns.current_user.email}
+              </div>
+              <a
+                href="/"
+                class="btn btn-ghost btn-sm"
+              >
+                Back to App
+              </a>
+              <a
+                href="/auth/logout"
+                class="btn btn-outline btn-sm"
+              >
+                Logout
+              </a>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <Layouts.flash_group flash={@flash} />
+
+      <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        {@inner_content}
+      </main>
+    </div>
+  </body>
+</html>

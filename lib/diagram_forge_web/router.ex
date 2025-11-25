@@ -1,5 +1,6 @@
 defmodule DiagramForgeWeb.Router do
   use DiagramForgeWeb, :router
+  import Backpex.Router
 
   pipeline :browser do
     plug :accepts, ["html"]
@@ -19,6 +20,11 @@ defmodule DiagramForgeWeb.Router do
     plug DiagramForgeWeb.Plugs.RequireAuth
   end
 
+  pipeline :require_superadmin do
+    plug DiagramForgeWeb.Plugs.RequireAuth
+    plug DiagramForgeWeb.Plugs.RequireSuperadmin
+  end
+
   scope "/auth", DiagramForgeWeb do
     pipe_through :browser
 
@@ -33,6 +39,29 @@ defmodule DiagramForgeWeb.Router do
     live "/", DiagramStudioLive
     live "/d/:id", DiagramStudioLive
     get "/home", PageController, :home
+  end
+
+  # Admin panel - superadmin only
+  scope "/admin" do
+    pipe_through [:browser, :require_superadmin]
+
+    # Backpex required routes for cookies
+    backpex_routes()
+
+    live_session :admin,
+      on_mount: [
+        Backpex.InitAssigns,
+        {DiagramForgeWeb.Plugs.RequireSuperadmin, :ensure_superadmin}
+      ] do
+      # User management
+      live_resources("/users", DiagramForgeWeb.Admin.UserResource)
+
+      # Diagram management
+      live_resources("/diagrams", DiagramForgeWeb.Admin.DiagramResource)
+
+      # Document management
+      live_resources("/documents", DiagramForgeWeb.Admin.DocumentResource)
+    end
   end
 
   # Other scopes may use custom stacks.

@@ -22,6 +22,11 @@ import "phoenix_html"
 // Establish Phoenix Socket and LiveView configuration.
 import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
+
+// Alpine.js for Backpex admin panel
+import Alpine from "alpinejs"
+window.Alpine = Alpine
+Alpine.start()
 import {hooks as colocatedHooks} from "phoenix-colocated/diagram_forge"
 import topbar from "../vendor/topbar"
 import mermaid from "mermaid"
