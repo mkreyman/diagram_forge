@@ -2,150 +2,109 @@
 
 ## Overview
 
-Add links for users to support the project financially, get in touch with the maintainer, and contribute to the open-source codebase.
+Links for users to support the project financially, get in touch for business inquiries, and contribute to the codebase. All links visible to everyone (logged in or not).
 
-## Target Audience
+## UI Layout
 
-Developers only (site uses GitHub OAuth exclusively - no other auth methods).
+### Header (Top Navbar)
 
----
+Text-based, minimal style visible to all users:
 
-## Recommended Setup (Minimal + Developer-Native)
+```
+Support this project → GitHub | Stripe    ·    Get in touch
+```
 
-### Primary: GitHub Sponsors
+- **GitHub** → GitHub Sponsors (primary, recurring + one-time)
+- **Stripe** → Payment Link (secondary, one-time tips)
+- **Get in touch** → LinkedIn (business inquiries)
 
-Most natural for developers - no friction, instantly trusted.
+### Footer
 
-Benefits:
-- Recurring sponsors
-- Lightweight one-time donations
-- Badge for repo
-- Automatic GitHub integration via API (optional later)
+```
+© 2025 DiagramForge · Terms of Service · Privacy Policy · Support
+```
 
-### Secondary: Stripe Payment Link
-
-For devs who prefer tipping without GitHub account connection or want to pay with card without signing in.
-
-**Rationale:** Most devs won't object to GitHub-only OAuth, but accepting donations through GitHub alone limits passive one-off tips. Stripe provides an easy fallback.
-
-Both links together = perfect setup.
+- **Terms of Service** → `/terms` (needs to be created)
+- **Privacy Policy** → `/privacy` (needs to be created)
+- **Support** → GitHub Issues
 
 ---
 
-## Copy Options (Clean, Non-Pushy, Dev-Focused)
+## Configuration
 
-### Option A - Clean + Professional
+All URLs pulled from environment variables:
 
-> **Support DiagramForge**
-> If this project saves you time or helps with your work, consider supporting development:
-> → **GitHub Sponsors**
-> → **Stripe one-time donation**
+```elixir
+# config/runtime.exs
+config :diagram_forge,
+  # Contact
+  linkedin_url: System.get_env("LINKEDIN_URL", "https://linkedin.com/in/mkreyman"),
 
-### Option B - Casual + Developer Tone
+  # Sponsorship
+  github_sponsors_url: System.get_env("GITHUB_SPONSORS_URL", "https://github.com/sponsors/mkreyman"),
+  stripe_tip_url: System.get_env("STRIPE_TIP_URL"),
 
-> **Enjoying DiagramForge?**
-> If it's making your workflow easier, you can support the project through:
-> • **GitHub Sponsors**
-> • **Stripe (one-time tip)**
+  # Repository
+  github_repo_url: System.get_env("GITHUB_REPO_URL", "https://github.com/mkreyman/diagram_forge"),
+  github_issues_url: System.get_env("GITHUB_ISSUES_URL", "https://github.com/mkreyman/diagram_forge/issues"),
 
-### Option C - Short + Minimal
-
-> Support this project → GitHub | Stripe
-
-### Option D - Open-source Spirit
-
-> DiagramForge is built and maintained for the developer community.
-> If you'd like to keep it improving, feel free to support the project via
-> **GitHub Sponsors** or a **Stripe tip**.
+  # Legal
+  terms_url: "/terms",
+  privacy_url: "/privacy"
+```
 
 ---
 
-## UI Placement
+## Stripe Payment Link Setup
 
-### Header Area (Top)
+For one-time tips with customer-chosen amount:
 
-Located in the top navbar, alongside or near the user auth section:
+1. Go to Stripe Dashboard → **Payment Links** → **Create**
+2. Click **Add a new product** → Name it "Support DiagramForge" or "Tip"
+3. Under pricing, select **"Customers choose what they pay"**
+4. Set a suggested amount (e.g., $5) and minimum (e.g., $1)
+5. **Payment type**: One-time (GitHub Sponsors handles recurring)
+6. Customize the checkout page with your branding
+7. Click **Create link**
+8. Copy the link and set as `STRIPE_TIP_URL` env var
 
-1. **Get in Touch** - LinkedIn profile link
-   - URL: `https://linkedin.com/in/mkreyman`
-   - Text: "Get in touch" (or just LinkedIn icon with tooltip)
+**Note:** GitHub Sponsors already handles recurring donations well, so Stripe is just for one-time tips from users who prefer not to use GitHub for payments.
 
-2. **Support Links** - Donation/tip options
-   - Stripe Payment Link (primary)
-   - GitHub Sponsors link
-   - Phrasing options:
-     - "Support this project"
-     - "☕ Buy me a coffee"
-     - "❤️ Sponsor"
+---
 
-### Footer Area (Bottom)
+## Implementation
 
-At the very bottom of the page:
-
-1. **Submit an Issue** - Link to GitHub Issues
-   - URL: `https://github.com/mkreyman/diagram_forge/issues`
-   - Text: "Report an issue" or "Submit feedback"
-
-2. **Contribute** - Link to repo for contributions
-   - URL: `https://github.com/mkreyman/diagram_forge`
-   - Text: "Contribute" or "View source"
-
-## Copy Options
-
-### Support Section (Non-pushy, developer-friendly)
-
-**Option A - Minimal:**
-> If DiagramForge saves you time, consider supporting the project.
-
-**Option B - Transparent:**
-> This project is free and open source. Tips help cover hosting and development.
-
-**Option C - Very light:**
-> ☕ Buy me a coffee
-
-### Footer Section
-
-> Found a bug? [Submit an issue](link) · Want to contribute? [View on GitHub](link)
-
-## Visual Design Considerations
-
-- Keep support links subtle, not salesy
-- Use recognizable icons (GitHub, LinkedIn, Stripe/heart)
-- Match existing dark theme (slate-800, slate-700, etc.)
-- Mobile-responsive placement
-
-## Implementation Details
-
-### Header Component Updates
+### Header Component
 
 ```heex
-<%!-- In navbar, after user section --%>
-<div class="flex items-center gap-3 text-sm">
+<%!-- Visible to all users, in navbar --%>
+<div class="flex items-center gap-2 text-sm text-slate-400">
+  <span>Support this project →</span>
   <a
-    href="https://linkedin.com/in/mkreyman"
+    href={Application.get_env(:diagram_forge, :github_sponsors_url)}
     target="_blank"
-    class="text-slate-400 hover:text-slate-200 transition"
-    title="Get in touch"
+    rel="noopener"
+    class="hover:text-slate-200 transition"
   >
-    <.icon name="hero-..." class="w-5 h-5" /> <%!-- or LinkedIn SVG --%>
+    GitHub
   </a>
-
+  <span>|</span>
   <a
-    href="[stripe-payment-link]"
+    href={Application.get_env(:diagram_forge, :stripe_tip_url)}
     target="_blank"
-    class="text-slate-400 hover:text-pink-400 transition"
-    title="Support this project"
+    rel="noopener"
+    class="hover:text-slate-200 transition"
   >
-    <.icon name="hero-heart" class="w-5 h-5" />
+    Stripe
   </a>
-
+  <span class="mx-2">·</span>
   <a
-    href="https://github.com/sponsors/mkreyman"
+    href={Application.get_env(:diagram_forge, :linkedin_url)}
     target="_blank"
-    class="text-slate-400 hover:text-slate-200 transition"
-    title="Sponsor on GitHub"
+    rel="noopener"
+    class="hover:text-slate-200 transition"
   >
-    <%!-- GitHub Sponsors icon --%>
+    Get in touch
   </a>
 </div>
 ```
@@ -155,80 +114,67 @@ At the very bottom of the page:
 ```heex
 <footer class="bg-slate-900 border-t border-slate-800 py-4">
   <div class="container mx-auto px-4 text-center text-sm text-slate-500">
-    <div class="flex items-center justify-center gap-4">
+    <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+      <span>© <%= Date.utc_today().year %> DiagramForge</span>
+      <span class="hidden sm:inline">·</span>
+      <a href="/terms" class="hover:text-slate-300 transition">Terms of Service</a>
+      <span class="hidden sm:inline">·</span>
+      <a href="/privacy" class="hover:text-slate-300 transition">Privacy Policy</a>
+      <span class="hidden sm:inline">·</span>
       <a
-        href="https://github.com/mkreyman/diagram_forge/issues"
+        href={Application.get_env(:diagram_forge, :github_issues_url)}
         target="_blank"
+        rel="noopener"
         class="hover:text-slate-300 transition"
       >
-        Report an issue
-      </a>
-      <span>·</span>
-      <a
-        href="https://github.com/mkreyman/diagram_forge"
-        target="_blank"
-        class="hover:text-slate-300 transition"
-      >
-        Contribute
+        Support
       </a>
     </div>
   </div>
 </footer>
 ```
 
-## External Accounts Needed
+### Mobile Behavior
 
-- [x] GitHub account (have it)
-- [x] Stripe account (have it)
-- [ ] Stripe Payment Link created (one-time setup)
-- [x] GitHub Sponsors enabled for profile
-- [x] `.github/FUNDING.yml` created for repo sponsor button
-
-## Configuration
-
-Make these URLs configurable via environment variables or runtime config:
-
-```elixir
-# config/runtime.exs
-config :diagram_forge,
-  linkedin_url: System.get_env("LINKEDIN_URL", "https://linkedin.com/in/mkreyman"),
-  github_repo_url: System.get_env("GITHUB_REPO_URL", "https://github.com/mkreyman/diagram_forge"),
-  stripe_support_url: System.get_env("STRIPE_SUPPORT_URL"),
-  github_sponsors_url: System.get_env("GITHUB_SPONSORS_URL")
-```
+Standard responsive pattern:
+- Header links collapse into hamburger menu on small screens
+- Footer links wrap naturally with `flex-wrap`
+- Separators hidden on mobile (`hidden sm:inline`)
 
 ---
 
-## Questions / Clarifications
+## Setup Checklist
 
-1. **Header placement** - Should the support/contact links be:
-   - Always visible to everyone (including non-logged-in users)?
-   - Only visible to logged-in users?
-   - In the main navbar or in a separate smaller bar above/below it?
+- [x] GitHub account
+- [x] Stripe account
+- [x] GitHub Sponsors enabled
+- [x] `.github/FUNDING.yml` created
+- [ ] Stripe Payment Link created (one-time, customer-chosen price)
+- [ ] Terms of Service page (`/terms`)
+- [ ] Privacy Policy page (`/privacy`)
+- [ ] Environment variables configured
+- [ ] Header component updated
+- [ ] Footer component updated
 
-2. **Support link priority** - Which should be more prominent:
-   - Stripe Payment Link (one-time tips)?
-   - GitHub Sponsors (recurring)?
-   - Both equally?
+---
 
-3. **Icons vs text** - For the header links, prefer:
-   - Icons only with tooltips (cleaner)?
-   - Icons + short text labels (clearer)?
-   - Text only?
+## Pages to Create
 
-4. **Stripe Payment Link** - Do you already have this created, or should I include setup instructions?
+### Terms of Service (`/terms`)
 
-5. **Footer content** - Should the footer also include:
-   - Copyright notice?
-   - "Built with Phoenix/Elixir" badge?
-   - Version number?
+Standard SaaS terms covering:
+- Acceptable use
+- Account responsibilities
+- Service availability
+- Limitation of liability
+- Termination
 
-6. **"Get in touch" purpose** - Is this for:
-   - General networking/contact?
-   - Business inquiries?
-   - Should there be an email option too, or LinkedIn only?
+### Privacy Policy (`/privacy`)
 
-7. **Mobile layout** - On small screens, should these links:
-   - Collapse into a menu?
-   - Remain visible but icon-only?
-   - Move to a different location?
+Required disclosures:
+- Data collected (GitHub OAuth profile, diagrams created)
+- How data is used
+- Third-party services (GitHub, Stripe, hosting provider)
+- Data retention
+- User rights (access, deletion)
+- Contact information
