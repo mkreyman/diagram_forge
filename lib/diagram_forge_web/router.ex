@@ -38,6 +38,8 @@ defmodule DiagramForgeWeb.Router do
 
     live "/", DiagramStudioLive
     live "/d/:id", DiagramStudioLive
+    live "/terms", TermsLive
+    live "/privacy", PrivacyLive
     get "/home", PageController, :home
   end
 

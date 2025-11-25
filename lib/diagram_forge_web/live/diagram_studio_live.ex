@@ -1070,6 +1070,36 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
               <img src={~p"/images/logo.png"} alt="DiagramForge" class="h-10 w-10" />
               <h1 class="text-xl font-bold text-slate-100">DiagramForge Studio</h1>
             </div>
+            <%!-- Support Links - visible to all --%>
+            <div class="hidden sm:flex items-center gap-2 text-sm text-slate-400">
+              <span>Support this project →</span>
+              <a
+                href={Application.get_env(:diagram_forge, :github_sponsors_url)}
+                target="_blank"
+                rel="noopener"
+                class="hover:text-slate-200 transition"
+              >
+                GitHub
+              </a>
+              <span>|</span>
+              <a
+                href={Application.get_env(:diagram_forge, :stripe_tip_url)}
+                target="_blank"
+                rel="noopener"
+                class="hover:text-slate-200 transition"
+              >
+                Stripe
+              </a>
+              <span class="mx-2">·</span>
+              <a
+                href={Application.get_env(:diagram_forge, :linkedin_url)}
+                target="_blank"
+                rel="noopener"
+                class="hover:text-slate-200 transition"
+              >
+                Get in touch
+              </a>
+            </div>
             <div class="flex items-center gap-4">
               <%= if @current_user do %>
                 <div class="flex items-center gap-3">
@@ -2024,6 +2054,28 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
           </div>
         </div>
       </div>
+
+      <%!-- Footer --%>
+      <footer class="bg-slate-900 border-t border-slate-800 py-4 mt-auto">
+        <div class="container mx-auto px-4 text-center text-sm text-slate-500">
+          <div class="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
+            <span>© {Date.utc_today().year} DiagramForge</span>
+            <span class="hidden sm:inline">·</span>
+            <a href="/terms" class="hover:text-slate-300 transition">Terms of Service</a>
+            <span class="hidden sm:inline">·</span>
+            <a href="/privacy" class="hover:text-slate-300 transition">Privacy Policy</a>
+            <span class="hidden sm:inline">·</span>
+            <a
+              href={Application.get_env(:diagram_forge, :github_issues_url)}
+              target="_blank"
+              rel="noopener"
+              class="hover:text-slate-300 transition"
+            >
+              Support
+            </a>
+          </div>
+        </div>
+      </footer>
 
       <%!-- Save Filter Modal --%>
       <%= if @show_save_filter_modal do %>

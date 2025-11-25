@@ -18,6 +18,16 @@ end
 config :diagram_forge,
   superadmin_email: System.get_env("DF_SUPERADMIN_USER")
 
+# Support, contact, and legal links
+config :diagram_forge,
+  linkedin_url: System.get_env("LINKEDIN_URL", "https://linkedin.com/in/mkreyman"),
+  github_sponsors_url:
+    System.get_env("GITHUB_SPONSORS_URL", "https://github.com/sponsors/mkreyman"),
+  stripe_tip_url: System.get_env("STRIPE_TIP_URL"),
+  github_repo_url: System.get_env("GITHUB_REPO_URL", "https://github.com/mkreyman/diagram_forge"),
+  github_issues_url:
+    System.get_env("GITHUB_ISSUES_URL", "https://github.com/mkreyman/diagram_forge/issues")
+
 # ## Using releases
 #
 # If you use `mix release`, you need to explicitly enable the server

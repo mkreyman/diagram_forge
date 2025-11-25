@@ -149,12 +149,12 @@ Standard responsive pattern:
 - [x] Stripe account
 - [x] GitHub Sponsors enabled
 - [x] `.github/FUNDING.yml` created
-- [ ] Stripe Payment Link created (one-time, customer-chosen price)
-- [ ] Terms of Service page (`/terms`)
-- [ ] Privacy Policy page (`/privacy`)
-- [ ] Environment variables configured
-- [ ] Header component updated
-- [ ] Footer component updated
+- [x] Stripe Payment Link created (one-time, customer-chosen price)
+- [x] Terms of Service page (`/terms`)
+- [x] Privacy Policy page (`/privacy`)
+- [x] Environment variables configured in `config/runtime.exs`
+- [x] Header component updated with support links
+- [x] Footer component added with legal links
 
 ---
 
