@@ -34,6 +34,37 @@ defmodule DiagramForge.AI.Prompts do
   - Only output strictly valid JSON with the requested fields.
   """
 
+  # Template uses {{MERMAID_CODE}} and {{SUMMARY}} placeholders for interpolation
+  @fix_mermaid_syntax_prompt """
+  The following Mermaid diagram has a syntax error and won't render:
+
+  ```mermaid
+  {{MERMAID_CODE}}
+  ```
+
+  Context about what this diagram should show:
+  {{SUMMARY}}
+
+  Please fix the Mermaid syntax so it renders correctly. Common issues include:
+  - Missing or incorrect node IDs
+  - Curly braces in edge labels MUST be quoted: -->|"{:ok, pid}"| not -->|{:ok, pid}|
+  - Special characters in node labels need quotes: A["Label with (parens)"]
+  - Unescaped special characters in labels (use double quotes for labels with special chars)
+  - Invalid arrow syntax
+  - Missing semicolons or newlines
+  - Incorrect diagram type declaration
+
+  Return ONLY valid JSON with the fixed mermaid code:
+
+  {
+    "mermaid": "fixed mermaid code here"
+  }
+
+  Keep the diagram's intent and structure as close to the original as possible.
+  Only fix syntax issues, don't redesign the diagram.
+  Only output JSON.
+  """
+
   # Default functions - return module attributes directly (used by DiagramForge.AI fallback)
 
   @doc """
@@ -47,6 +78,13 @@ defmodule DiagramForge.AI.Prompts do
   Used as fallback when no DB customization exists.
   """
   def default_diagram_system_prompt, do: @diagram_system_prompt
+
+  @doc """
+  Returns the default template for fixing Mermaid syntax errors.
+  Uses {{MERMAID_CODE}} and {{SUMMARY}} placeholders.
+  Used as fallback when no DB customization exists.
+  """
+  def default_fix_mermaid_syntax_prompt, do: @fix_mermaid_syntax_prompt
 
   # Public API - checks DB first, falls back to defaults
 
@@ -198,36 +236,12 @@ defmodule DiagramForge.AI.Prompts do
   Returns the user prompt for fixing Mermaid syntax errors.
 
   Takes the broken Mermaid code, the diagram's summary/context, and attempts to fix it.
+  Checks database for customized template first, falls back to default.
+  Template uses {{MERMAID_CODE}} and {{SUMMARY}} placeholders.
   """
   def fix_mermaid_syntax_prompt(broken_mermaid, summary) do
-    """
-    The following Mermaid diagram has a syntax error and won't render:
-
-    ```mermaid
-    #{broken_mermaid}
-    ```
-
-    Context about what this diagram should show:
-    #{summary}
-
-    Please fix the Mermaid syntax so it renders correctly. Common issues include:
-    - Missing or incorrect node IDs
-    - Curly braces in edge labels MUST be quoted: -->|"{:ok, pid}"| not -->|{:ok, pid}|
-    - Special characters in node labels need quotes: A["Label with (parens)"]
-    - Unescaped special characters in labels (use double quotes for labels with special chars)
-    - Invalid arrow syntax
-    - Missing semicolons or newlines
-    - Incorrect diagram type declaration
-
-    Return ONLY valid JSON with the fixed mermaid code:
-
-    {
-      "mermaid": "fixed mermaid code here"
-    }
-
-    Keep the diagram's intent and structure as close to the original as possible.
-    Only fix syntax issues, don't redesign the diagram.
-    Only output JSON.
-    """
+    DiagramForge.AI.get_prompt("fix_mermaid_syntax")
+    |> String.replace("{{MERMAID_CODE}}", broken_mermaid)
+    |> String.replace("{{SUMMARY}}", summary)
   end
 end

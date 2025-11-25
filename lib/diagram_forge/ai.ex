@@ -65,6 +65,7 @@ defmodule DiagramForge.AI do
   # Default prompts (fallback) - calls the default functions to avoid circular deps
   defp default_prompt("concept_system"), do: Prompts.default_concept_system_prompt()
   defp default_prompt("diagram_system"), do: Prompts.default_diagram_system_prompt()
+  defp default_prompt("fix_mermaid_syntax"), do: Prompts.default_fix_mermaid_syntax_prompt()
   defp default_prompt(_), do: nil
 
   # Known prompt keys with descriptions for admin UI
@@ -72,7 +73,9 @@ defmodule DiagramForge.AI do
   def known_prompt_keys do
     [
       {"concept_system", "System prompt for concept extraction from documents"},
-      {"diagram_system", "System prompt for diagram generation"}
+      {"diagram_system", "System prompt for diagram generation"},
+      {"fix_mermaid_syntax",
+       "Template for fixing Mermaid syntax errors (uses {{MERMAID_CODE}} and {{SUMMARY}} placeholders)"}
     ]
   end
 

@@ -149,7 +149,7 @@ defmodule DiagramForge.AITest do
     test "returns all known prompts with default status when no DB records" do
       prompts = AI.list_all_prompts_with_status()
 
-      assert length(prompts) == 2
+      assert length(prompts) == 3
 
       concept_prompt = Enum.find(prompts, &(&1.key == "concept_system"))
       assert concept_prompt.source == :default
@@ -159,6 +159,11 @@ defmodule DiagramForge.AITest do
       diagram_prompt = Enum.find(prompts, &(&1.key == "diagram_system"))
       assert diagram_prompt.source == :default
       assert is_nil(diagram_prompt.db_record)
+
+      fix_syntax_prompt = Enum.find(prompts, &(&1.key == "fix_mermaid_syntax"))
+      assert fix_syntax_prompt.source == :default
+      assert is_nil(fix_syntax_prompt.db_record)
+      assert fix_syntax_prompt.content =~ "{{MERMAID_CODE}}"
     end
 
     test "returns database status when DB record exists" do
@@ -199,9 +204,38 @@ defmodule DiagramForge.AITest do
     test "returns list of known prompt keys with descriptions" do
       keys = AI.known_prompt_keys()
 
-      assert length(keys) == 2
+      assert length(keys) == 3
       assert {"concept_system", _} = Enum.find(keys, fn {k, _} -> k == "concept_system" end)
       assert {"diagram_system", _} = Enum.find(keys, fn {k, _} -> k == "diagram_system" end)
+
+      assert {"fix_mermaid_syntax", _} =
+               Enum.find(keys, fn {k, _} -> k == "fix_mermaid_syntax" end)
+    end
+  end
+
+  describe "fix_mermaid_syntax_prompt/2 (via Prompts module)" do
+    alias DiagramForge.AI.Prompts
+
+    test "replaces placeholders with provided values" do
+      AI.invalidate_cache("fix_mermaid_syntax")
+
+      result = Prompts.fix_mermaid_syntax_prompt("flowchart TD\n  A --> B", "A simple diagram")
+
+      assert result =~ "flowchart TD"
+      assert result =~ "A --> B"
+      assert result =~ "A simple diagram"
+      refute result =~ "{{MERMAID_CODE}}"
+      refute result =~ "{{SUMMARY}}"
+    end
+
+    test "uses customized template when DB record exists" do
+      custom_template = "Fix this: {{MERMAID_CODE}} - Context: {{SUMMARY}} - Return JSON only."
+      fixture(:prompt, key: "fix_mermaid_syntax", content: custom_template)
+      AI.invalidate_cache("fix_mermaid_syntax")
+
+      result = Prompts.fix_mermaid_syntax_prompt("broken code", "test summary")
+
+      assert result == "Fix this: broken code - Context: test summary - Return JSON only."
     end
   end
 end
