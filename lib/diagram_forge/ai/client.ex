@@ -25,6 +25,9 @@ defmodule DiagramForge.AI.Client do
     * `:base_delay_ms` - Base retry delay in ms (default: 1000)
     * `:max_delay_ms` - Maximum retry delay in ms (default: 10000)
     * `:base_url` - Override the base URL (for testing, default: https://api.openai.com/v1)
+    * `:user_id` - User ID for usage tracking
+    * `:operation` - Operation type for usage tracking (e.g., "diagram_generation", "syntax_fix")
+    * `:track_usage` - Whether to track token usage (default: true)
 
   ## Examples
 
@@ -49,7 +52,12 @@ defmodule DiagramForge.AI.Client do
            fn -> make_request(api_key, model, messages, base_url) end,
            retry_opts
          ) do
-      {:ok, content} ->
+      {:ok, content, usage} ->
+        # Track usage asynchronously if enabled (default: true)
+        if opts[:track_usage] != false do
+          track_usage(model, usage, opts)
+        end
+
         content
 
       {:error, reason} ->
@@ -60,6 +68,33 @@ defmodule DiagramForge.AI.Client do
 
         raise "OpenAI API request failed: #{inspect(reason)}"
     end
+  end
+
+  defp track_usage(model_api_name, usage, opts) do
+    # Track usage asynchronously to avoid blocking the response
+    # and to avoid database connection issues in tests
+    Task.start(fn ->
+      alias DiagramForge.Usage
+
+      # Look up the model by API name to get the model_id
+      case Usage.get_model_by_api_name(model_api_name) do
+        nil ->
+          Logger.warning("Unknown model for usage tracking: #{model_api_name}")
+
+        ai_model ->
+          Usage.record_usage(%{
+            model_id: ai_model.id,
+            user_id: opts[:user_id],
+            operation: opts[:operation] || "unknown",
+            input_tokens: usage["prompt_tokens"] || 0,
+            output_tokens: usage["completion_tokens"] || 0,
+            total_tokens: usage["total_tokens"] || 0,
+            metadata: %{
+              model_api_name: model_api_name
+            }
+          })
+      end
+    end)
   end
 
   # Private functions
@@ -110,7 +145,9 @@ defmodule DiagramForge.AI.Client do
           |> List.first()
           |> get_in(["message", "content"])
 
-        {:ok, content}
+        usage = resp.body["usage"] || %{}
+
+        {:ok, content, usage}
 
       {:ok, %{status: status} = resp} ->
         # Also parse rate limits on error responses
