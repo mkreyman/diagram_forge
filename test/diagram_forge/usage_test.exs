@@ -162,9 +162,18 @@ defmodule DiagramForge.UsageTest do
       model = fixture(:ai_model, provider: provider)
       user = fixture(:user)
 
+      # $1.00 per million input, $2.00 per million output
+      _price =
+        fixture(:ai_model_price,
+          model: model,
+          input_price_per_million: Decimal.new("1.00"),
+          output_price_per_million: Decimal.new("2.00")
+        )
+
       today = Date.utc_today()
 
       # Create daily aggregates for current month
+      # With pricing: (10K * $1 / 1M) + (5K * $2 / 1M) = $0.01 + $0.01 = 2 cents
       fixture(:daily_aggregate,
         user: user,
         model: model,
@@ -172,12 +181,13 @@ defmodule DiagramForge.UsageTest do
         input_tokens: 10_000,
         output_tokens: 5_000,
         total_tokens: 15_000,
-        cost_cents: 100,
+        cost_cents: 2,
         request_count: 5
       )
 
       # Only add another day if we're not on the first day of the month
       if today.day > 1 do
+        # With pricing: (20K * $1 / 1M) + (10K * $2 / 1M) = $0.02 + $0.02 = 4 cents
         fixture(:daily_aggregate,
           user: user,
           model: model,
@@ -185,7 +195,7 @@ defmodule DiagramForge.UsageTest do
           input_tokens: 20_000,
           output_tokens: 10_000,
           total_tokens: 30_000,
-          cost_cents: 200,
+          cost_cents: 4,
           request_count: 10
         )
 
@@ -193,14 +203,16 @@ defmodule DiagramForge.UsageTest do
 
         assert summary.input_tokens == 30_000
         assert summary.output_tokens == 15_000
-        assert summary.cost_cents == 300
+        # Cost calculated from tokens: 2 + 4 = 6 cents
+        assert summary.cost_cents == 6
         assert summary.request_count == 15
       else
         summary = Usage.get_monthly_summary(today.year, today.month)
 
         assert summary.input_tokens == 10_000
         assert summary.output_tokens == 5_000
-        assert summary.cost_cents == 100
+        # Cost calculated from tokens: 2 cents
+        assert summary.cost_cents == 2
         assert summary.request_count == 5
       end
     end
@@ -221,14 +233,25 @@ defmodule DiagramForge.UsageTest do
       model = fixture(:ai_model, provider: provider)
       user = fixture(:user)
 
+      # $1.00 per million input, $2.00 per million output
+      _price =
+        fixture(:ai_model_price,
+          model: model,
+          input_price_per_million: Decimal.new("1.00"),
+          output_price_per_million: Decimal.new("2.00")
+        )
+
       today = Date.utc_today()
       start_of_month = Date.beginning_of_month(today)
 
+      # With pricing: (100K * $1 / 1M) + (50K * $2 / 1M) = $0.10 + $0.10 = 20 cents
       fixture(:daily_aggregate,
         user: user,
         model: model,
         date: start_of_month,
-        cost_cents: 100,
+        input_tokens: 100_000,
+        output_tokens: 50_000,
+        cost_cents: 20,
         request_count: 5
       )
 
@@ -240,16 +263,18 @@ defmodule DiagramForge.UsageTest do
           user: user,
           model: model,
           date: second_day,
-          cost_cents: 200,
+          input_tokens: 200_000,
+          output_tokens: 100_000,
+          cost_cents: 40,
           request_count: 10
         )
       end
 
       daily_costs = Usage.get_daily_costs(today.year, today.month)
 
-      # First day should have cost
+      # First day should have cost calculated from tokens
       first_day_cost = Enum.find(daily_costs, &(&1.date == start_of_month))
-      assert first_day_cost.cost_cents == 100
+      assert first_day_cost.cost_cents == 20
     end
   end
 
@@ -260,21 +285,43 @@ defmodule DiagramForge.UsageTest do
       user1 = fixture(:user)
       user2 = fixture(:user)
 
+      # $1.00 per million input, $2.00 per million output
+      _price =
+        fixture(:ai_model_price,
+          model: model,
+          input_price_per_million: Decimal.new("1.00"),
+          output_price_per_million: Decimal.new("2.00")
+        )
+
       today = Date.utc_today()
 
-      # User 1 has less cost
-      fixture(:daily_aggregate, user: user1, model: model, date: today, cost_cents: 100)
+      # User 1 has less cost: (100K * $1 / 1M) + (50K * $2 / 1M) = 20 cents
+      fixture(:daily_aggregate,
+        user: user1,
+        model: model,
+        date: today,
+        input_tokens: 100_000,
+        output_tokens: 50_000,
+        cost_cents: 20
+      )
 
-      # User 2 has more cost
-      fixture(:daily_aggregate, user: user2, model: model, date: today, cost_cents: 500)
+      # User 2 has more cost: (500K * $1 / 1M) + (250K * $2 / 1M) = 100 cents
+      fixture(:daily_aggregate,
+        user: user2,
+        model: model,
+        date: today,
+        input_tokens: 500_000,
+        output_tokens: 250_000,
+        cost_cents: 100
+      )
 
       top_users = Usage.get_top_users_by_cost(today.year, today.month)
 
       assert length(top_users) == 2
       assert Enum.at(top_users, 0).user_id == user2.id
-      assert Enum.at(top_users, 0).cost_cents == 500
+      assert Enum.at(top_users, 0).cost_cents == 100
       assert Enum.at(top_users, 1).user_id == user1.id
-      assert Enum.at(top_users, 1).cost_cents == 100
+      assert Enum.at(top_users, 1).cost_cents == 20
     end
   end
 

@@ -110,6 +110,20 @@ defmodule DiagramForge.Usage do
 
   def calculate_cost(_input_tokens, _output_tokens, nil), do: nil
 
+  @doc """
+  Calculates cost in cents for given token counts using the model's current price.
+  Returns 0 if no pricing is available.
+  """
+  def calculate_cost_for_tokens(model_id, input_tokens, output_tokens)
+      when is_binary(model_id) do
+    case get_current_price(model_id) do
+      nil -> 0
+      price -> calculate_cost(input_tokens || 0, output_tokens || 0, price)
+    end
+  end
+
+  def calculate_cost_for_tokens(_, _, _), do: 0
+
   # ============================================================================
   # Token Usage Recording
   # ============================================================================
@@ -219,28 +233,26 @@ defmodule DiagramForge.Usage do
 
   @doc """
   Gets usage summary for a custom date range.
+  Calculates cost from aggregated tokens using current pricing (via model breakdown).
   """
   def get_summary_for_range(start_date, end_date) do
-    result =
-      DailyAggregate
-      |> where([d], d.date >= ^start_date and d.date <= ^end_date)
-      |> select([d], %{
-        cost_cents: sum(d.cost_cents),
-        request_count: sum(d.request_count),
-        total_tokens: sum(d.total_tokens),
-        input_tokens: sum(d.input_tokens),
-        output_tokens: sum(d.output_tokens)
-      })
-      |> Repo.one()
+    # Get model breakdown which calculates costs from tokens
+    model_breakdown = get_usage_by_model_for_range(start_date, end_date)
 
-    # SQL sum() returns nil when there are no rows, so coalesce to 0
-    %{
-      cost_cents: result.cost_cents || 0,
-      request_count: result.request_count || 0,
-      total_tokens: result.total_tokens || 0,
-      input_tokens: result.input_tokens || 0,
-      output_tokens: result.output_tokens || 0
-    }
+    # Sum up the calculated costs and token counts
+    Enum.reduce(model_breakdown, initial_summary(), fn row, acc ->
+      %{
+        cost_cents: acc.cost_cents + (row.cost_cents || 0),
+        request_count: acc.request_count + (row.request_count || 0),
+        total_tokens: acc.total_tokens + (row.total_tokens || 0),
+        input_tokens: acc.input_tokens + (row.input_tokens || 0),
+        output_tokens: acc.output_tokens + (row.output_tokens || 0)
+      }
+    end)
+  end
+
+  defp initial_summary do
+    %{cost_cents: 0, request_count: 0, total_tokens: 0, input_tokens: 0, output_tokens: 0}
   end
 
   @doc """
@@ -253,21 +265,40 @@ defmodule DiagramForge.Usage do
 
   @doc """
   Gets top users by cost for a custom date range.
+  Calculates cost from aggregated tokens using current pricing.
   """
   def get_top_users_for_range(start_date, end_date, limit \\ 10) do
+    # Get per-user, per-model data so we can calculate costs accurately
     DailyAggregate
     |> where([d], d.date >= ^start_date and d.date <= ^end_date)
     |> where([d], not is_nil(d.user_id))
-    |> group_by([d], d.user_id)
+    |> group_by([d], [d.user_id, d.model_id])
     |> select([d], %{
       user_id: d.user_id,
-      cost_cents: sum(d.cost_cents),
+      model_id: d.model_id,
+      input_tokens: sum(d.input_tokens),
+      output_tokens: sum(d.output_tokens),
       request_count: sum(d.request_count),
       total_tokens: sum(d.total_tokens)
     })
-    |> order_by([d], desc: sum(d.cost_cents))
-    |> limit(^limit)
     |> Repo.all()
+    # Calculate cost for each user's model usage
+    |> Enum.map(fn row ->
+      cost_cents = calculate_cost_for_tokens(row.model_id, row.input_tokens, row.output_tokens)
+      Map.put(row, :cost_cents, cost_cents)
+    end)
+    # Aggregate by user
+    |> Enum.group_by(& &1.user_id)
+    |> Enum.map(fn {user_id, rows} ->
+      %{
+        user_id: user_id,
+        cost_cents: Enum.sum(Enum.map(rows, & &1.cost_cents)),
+        request_count: Enum.sum(Enum.map(rows, & &1.request_count)),
+        total_tokens: Enum.sum(Enum.map(rows, & &1.total_tokens))
+      }
+    end)
+    |> Enum.sort_by(& &1.cost_cents, :desc)
+    |> Enum.take(limit)
   end
 
   @doc """
@@ -280,18 +311,36 @@ defmodule DiagramForge.Usage do
 
   @doc """
   Gets daily cost breakdown for a custom date range.
+  Calculates cost from aggregated tokens using current pricing.
   """
   def get_daily_costs_for_range(start_date, end_date) do
+    # Get per-day, per-model data so we can calculate costs accurately
     DailyAggregate
     |> where([d], d.date >= ^start_date and d.date <= ^end_date)
-    |> group_by([d], d.date)
+    |> group_by([d], [d.date, d.model_id])
     |> select([d], %{
       date: d.date,
-      cost_cents: sum(d.cost_cents),
+      model_id: d.model_id,
+      input_tokens: sum(d.input_tokens),
+      output_tokens: sum(d.output_tokens),
       request_count: sum(d.request_count)
     })
-    |> order_by([d], asc: d.date)
     |> Repo.all()
+    # Calculate cost for each model's daily usage
+    |> Enum.map(fn row ->
+      cost_cents = calculate_cost_for_tokens(row.model_id, row.input_tokens, row.output_tokens)
+      Map.put(row, :cost_cents, cost_cents)
+    end)
+    # Aggregate by date
+    |> Enum.group_by(& &1.date)
+    |> Enum.map(fn {date, rows} ->
+      %{
+        date: date,
+        cost_cents: Enum.sum(Enum.map(rows, & &1.cost_cents)),
+        request_count: Enum.sum(Enum.map(rows, & &1.request_count))
+      }
+    end)
+    |> Enum.sort_by(& &1.date, Date)
   end
 
   @doc """
@@ -305,6 +354,7 @@ defmodule DiagramForge.Usage do
 
   @doc """
   Gets usage breakdown by model for a custom date range.
+  Calculates cost from aggregated tokens using current pricing.
   """
   def get_usage_by_model_for_range(start_date, end_date) do
     DailyAggregate
@@ -316,14 +366,17 @@ defmodule DiagramForge.Usage do
       model_id: d.model_id,
       model_name: m.name,
       api_name: m.api_name,
-      cost_cents: sum(d.cost_cents),
       request_count: sum(d.request_count),
       input_tokens: sum(d.input_tokens),
       output_tokens: sum(d.output_tokens),
       total_tokens: sum(d.total_tokens)
     })
-    |> order_by([d], desc: sum(d.cost_cents))
     |> Repo.all()
+    |> Enum.map(fn row ->
+      cost_cents = calculate_cost_for_tokens(row.model_id, row.input_tokens, row.output_tokens)
+      Map.put(row, :cost_cents, cost_cents)
+    end)
+    |> Enum.sort_by(& &1.cost_cents, :desc)
   end
 
   # ============================================================================
