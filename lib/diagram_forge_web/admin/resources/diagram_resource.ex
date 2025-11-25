@@ -59,17 +59,17 @@ defmodule DiagramForgeWeb.Admin.DiagramResource do
         module: Backpex.Fields.Select,
         label: "Visibility",
         options: [
-          %{label: "Private", value: :private},
-          %{label: "Unlisted", value: :unlisted},
-          %{label: "Public", value: :public}
+          {"Private", :private},
+          {"Unlisted", :unlisted},
+          {"Public", :public}
         ]
       },
       format: %{
         module: Backpex.Fields.Select,
         label: "Format",
         options: [
-          %{label: "Mermaid", value: :mermaid},
-          %{label: "PlantUML", value: :plantuml}
+          {"Mermaid", :mermaid},
+          {"PlantUML", :plantuml}
         ]
       },
       tags: %{
@@ -90,7 +90,7 @@ defmodule DiagramForgeWeb.Admin.DiagramResource do
           """
         end
       },
-      document_id: %{
+      document: %{
         module: Backpex.Fields.BelongsTo,
         label: "Document",
         display_field: :title,
@@ -99,7 +99,7 @@ defmodule DiagramForgeWeb.Admin.DiagramResource do
           from(d in query, order_by: [desc: d.inserted_at], limit: 100)
         end
       },
-      forked_from_id: %{
+      forked_from: %{
         module: Backpex.Fields.BelongsTo,
         label: "Forked From",
         display_field: :title,

@@ -444,6 +444,17 @@ defmodule DiagramForgeWeb.CoreComponents do
   end
 
   @doc """
+  Translates Backpex strings using gettext.
+  """
+  def translate_backpex({msg, opts}) do
+    Gettext.dgettext(DiagramForgeWeb.Gettext, "backpex", msg, opts)
+  end
+
+  def translate_backpex(msg) when is_binary(msg) do
+    Gettext.dgettext(DiagramForgeWeb.Gettext, "backpex", msg)
+  end
+
+  @doc """
   Translates an error message using gettext.
   """
   def translate_error({msg, opts}) do

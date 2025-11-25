@@ -72,6 +72,12 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+# Configure Backpex admin panel
+config :backpex,
+  pubsub_server: DiagramForge.PubSub,
+  translator_function: {DiagramForgeWeb.CoreComponents, :translate_backpex},
+  error_translator_function: {DiagramForgeWeb.CoreComponents, :translate_error}
+
 # Configure Oban
 config :diagram_forge, Oban,
   engine: Oban.Engines.Basic,

@@ -48,11 +48,19 @@ defmodule DiagramForgeWeb.Router do
     # Backpex required routes for cookies
     backpex_routes()
 
+    # Redirect /admin to /admin/dashboard
+    get "/", DiagramForgeWeb.AdminRedirectController, :index
+
+    # Admin live session - includes dashboard and Backpex resources
     live_session :admin,
+      root_layout: {DiagramForgeWeb.Admin.Layouts, :root},
       on_mount: [
         Backpex.InitAssigns,
         {DiagramForgeWeb.Plugs.RequireSuperadmin, :ensure_superadmin}
       ] do
+      # Dashboard
+      live "/dashboard", DiagramForgeWeb.Admin.DashboardLive
+
       # User management
       live_resources("/users", DiagramForgeWeb.Admin.UserResource)
 

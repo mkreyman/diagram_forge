@@ -237,13 +237,33 @@ defmodule DiagramForge.Diagrams do
 
   @doc """
   Lists all public diagrams for discovery feed.
+  Optionally filters by tags (AND logic - must have ALL tags).
   """
-  def list_public_diagrams do
+  def list_public_diagrams(tags \\ [])
+
+  def list_public_diagrams([]) do
     Repo.all(
       from d in Diagram,
         where: d.visibility == :public,
         order_by: [desc: d.inserted_at]
     )
+  end
+
+  def list_public_diagrams(tags) when is_list(tags) do
+    base_query =
+      from d in Diagram,
+        where: d.visibility == :public
+
+    # Add tag filter (must have ALL tags)
+    query =
+      Enum.reduce(tags, base_query, fn tag, acc ->
+        from d in acc,
+          where: ^tag in d.tags
+      end)
+
+    query
+    |> order_by([d], desc: d.inserted_at)
+    |> Repo.all()
   end
 
   @doc """
@@ -392,6 +412,22 @@ defmodule DiagramForge.Diagrams do
         join: ud in UserDiagram,
         on: ud.diagram_id == d.id,
         where: ud.user_id == ^user_id,
+        select: d.tags
+
+    Repo.all(query)
+    |> List.flatten()
+    |> Enum.frequencies()
+  end
+
+  @doc """
+  Gets tag counts from public diagrams.
+
+  Returns a map of tag => count for public diagrams.
+  """
+  def get_public_tag_counts do
+    query =
+      from d in Diagram,
+        where: d.visibility == :public,
         select: d.tags
 
     Repo.all(query)

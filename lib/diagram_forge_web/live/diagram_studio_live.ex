@@ -14,8 +14,12 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   on_mount DiagramForgeWeb.UserLive
 
+  # Default pagination settings
+  @default_page_size 10
+  @page_size_options [5, 10, 25, 50]
+
   @impl true
-  def mount(params, _session, socket) do
+  def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(DiagramForge.PubSub, "documents")
       Phoenix.PubSub.subscribe(DiagramForge.PubSub, "diagrams")
@@ -25,6 +29,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
     current_user = socket.assigns[:current_user]
 
+    # Set up initial state - URL-dependent data will be loaded in handle_params
     socket =
       socket
       |> assign(:current_user, current_user)
@@ -51,7 +56,14 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
       |> assign(:editing_filter, nil)
       |> assign(:editing_diagram, nil)
       |> assign(:new_tag_input, "")
-      |> load_diagrams()
+      # Pagination state for owned diagrams
+      |> assign(:page, 1)
+      |> assign(:page_size, @default_page_size)
+      |> assign(:page_size_options, @page_size_options)
+      |> assign(:total_owned_diagrams, 0)
+      # Pagination state for public diagrams
+      |> assign(:public_page, 1)
+      |> assign(:total_public_diagrams, 0)
       |> load_tags()
       |> load_filters()
       |> allow_upload(:document,
@@ -60,47 +72,44 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         max_file_size: 50_000_000
       )
 
-    # Handle permalink access via /d/:id
-    socket =
-      case params do
-        %{"id" => id} ->
-          try do
-            diagram = Diagrams.get_diagram!(id)
-
-            if Diagrams.can_view_diagram?(diagram, current_user) do
-              socket |> assign(:selected_diagram, diagram)
-            else
-              socket
-              |> put_flash(:error, "You don't have permission to view this diagram")
-              |> push_navigate(to: "/")
-            end
-          rescue
-            Ecto.NoResultsError ->
-              socket
-              |> put_flash(:error, "Diagram not found")
-              |> push_navigate(to: "/")
-          end
-
-        _ ->
-          socket
-      end
-
     {:ok, socket}
   end
 
   @impl true
   def handle_params(params, _url, socket) do
-    diagram_id = params["id"]
+    current_user = socket.assigns.current_user
 
-    # If diagram ID is provided, load the diagram and set it as selected
+    # Parse URL params
+    diagram_id = params["id"]
+    tags = parse_tags_param(params["tags"])
+    page = parse_int(params["page"], 1)
+    page_size = parse_int(params["page_size"], @default_page_size)
+    public_page = parse_int(params["public_page"], 1)
+
+    # Update filter and pagination state from URL
+    socket =
+      socket
+      |> assign(:active_tag_filter, tags)
+      |> assign(:page, page)
+      |> assign(:page_size, page_size)
+      |> assign(:public_page, public_page)
+      |> load_diagrams()
+
+    # Handle diagram selection
     socket =
       if diagram_id do
         try do
           diagram = Diagrams.get_diagram!(diagram_id)
 
-          socket
-          |> assign(:selected_diagram, diagram)
-          |> assign(:generated_diagram, nil)
+          if Diagrams.can_view_diagram?(diagram, current_user) do
+            socket
+            |> assign(:selected_diagram, diagram)
+            |> assign(:generated_diagram, nil)
+          else
+            socket
+            |> put_flash(:error, "You don't have permission to view this diagram")
+            |> push_navigate(to: "/")
+          end
         rescue
           Ecto.NoResultsError ->
             socket
@@ -114,6 +123,29 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     {:noreply, socket}
   end
 
+  # Parse comma-separated tags from URL param
+  defp parse_tags_param(nil), do: []
+  defp parse_tags_param(""), do: []
+
+  defp parse_tags_param(tags_str) do
+    tags_str
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  # Parse integer from param with default
+  defp parse_int(nil, default), do: default
+
+  defp parse_int(val, default) when is_binary(val) do
+    case Integer.parse(val) do
+      {int, _} when int > 0 -> int
+      _ -> default
+    end
+  end
+
+  defp parse_int(_, default), do: default
+
   # Tag filtering events
 
   @impl true
@@ -121,13 +153,11 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     current_filter = socket.assigns.active_tag_filter
     new_filter = (current_filter ++ [tag]) |> Enum.uniq()
 
-    socket =
-      socket
-      |> assign(:active_tag_filter, new_filter)
-      |> assign(:new_tag_input, "")
-      |> load_diagrams()
-
-    {:noreply, socket}
+    # Push URL with new filter, reset to page 1
+    {:noreply,
+     socket
+     |> assign(:new_tag_input, "")
+     |> push_filter_url(new_filter, 1, socket.assigns.page_size)}
   end
 
   @impl true
@@ -135,22 +165,14 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     current_filter = socket.assigns.active_tag_filter
     new_filter = current_filter -- [tag]
 
-    socket =
-      socket
-      |> assign(:active_tag_filter, new_filter)
-      |> load_diagrams()
-
-    {:noreply, socket}
+    # Push URL with updated filter, reset to page 1
+    {:noreply, push_filter_url(socket, new_filter, 1, socket.assigns.page_size)}
   end
 
   @impl true
   def handle_event("clear_filter", _params, socket) do
-    socket =
-      socket
-      |> assign(:active_tag_filter, [])
-      |> load_diagrams()
-
-    {:noreply, socket}
+    # Push URL with empty filter, reset to page 1
+    {:noreply, push_filter_url(socket, [], 1, socket.assigns.page_size)}
   end
 
   @impl true
@@ -158,18 +180,52 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     {:noreply, assign(socket, :new_tag_input, tag)}
   end
 
+  # Pagination events for owned diagrams
+
+  @impl true
+  def handle_event("change_page", %{"page" => page}, socket) do
+    page = parse_int(page, 1)
+
+    {:noreply,
+     push_filter_url(
+       socket,
+       socket.assigns.active_tag_filter,
+       page,
+       socket.assigns.page_size,
+       socket.assigns.public_page
+     )}
+  end
+
+  @impl true
+  def handle_event("change_page_size", %{"page_size" => page_size}, socket) do
+    page_size = parse_int(page_size, @default_page_size)
+    # Reset both pages to 1 when changing page size
+    {:noreply, push_filter_url(socket, socket.assigns.active_tag_filter, 1, page_size, 1)}
+  end
+
+  # Pagination events for public diagrams
+
+  @impl true
+  def handle_event("change_public_page", %{"page" => page}, socket) do
+    page = parse_int(page, 1)
+
+    {:noreply,
+     push_filter_url(
+       socket,
+       socket.assigns.active_tag_filter,
+       socket.assigns.page,
+       socket.assigns.page_size,
+       page
+     )}
+  end
+
   # Saved filter events
 
   @impl true
   def handle_event("apply_saved_filter", %{"id" => filter_id}, socket) do
     filter = Diagrams.get_saved_filter!(filter_id)
-
-    socket =
-      socket
-      |> assign(:active_tag_filter, filter.tag_filter)
-      |> load_diagrams()
-
-    {:noreply, socket}
+    # Apply saved filter via URL params, reset to page 1
+    {:noreply, push_filter_url(socket, filter.tag_filter, 1, socket.assigns.page_size)}
   end
 
   @impl true
@@ -509,7 +565,8 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         {:noreply,
          socket
          |> assign(:current_user, updated_user)
-         |> load_diagrams()}
+         |> load_diagrams()
+         |> load_tags()}
 
       {:error, _changeset} ->
         {:noreply, put_flash(socket, :error, "Failed to update preference")}
@@ -536,7 +593,15 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   @impl true
   def handle_event("select_diagram", %{"id" => id}, socket) do
-    {:noreply, push_patch(socket, to: ~p"/d/#{id}")}
+    # Preserve filter and pagination when selecting a diagram
+    params =
+      build_url_params(
+        socket.assigns.active_tag_filter,
+        socket.assigns.page,
+        socket.assigns.page_size
+      )
+
+    {:noreply, push_patch(socket, to: ~p"/d/#{id}?#{params}")}
   end
 
   @impl true
@@ -715,49 +780,135 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   # Private helper functions
 
+  # Helper to build URL with filter and pagination params
+  defp push_filter_url(socket, tags, page, page_size, public_page \\ 1) do
+    params = build_url_params(tags, page, page_size, public_page)
+    push_patch(socket, to: ~p"/?#{params}")
+  end
+
+  defp build_url_params(tags, page, page_size, public_page \\ 1) do
+    params = []
+
+    params =
+      if tags != [] do
+        [{:tags, Enum.join(tags, ",")} | params]
+      else
+        params
+      end
+
+    params =
+      if page != 1 do
+        [{:page, page} | params]
+      else
+        params
+      end
+
+    params =
+      if page_size != @default_page_size do
+        [{:page_size, page_size} | params]
+      else
+        params
+      end
+
+    params =
+      if public_page != 1 do
+        [{:public_page, public_page} | params]
+      else
+        params
+      end
+
+    params
+  end
+
   defp load_diagrams(socket) do
     user_id = socket.assigns.current_user && socket.assigns.current_user.id
     tag_filter = socket.assigns[:active_tag_filter] || []
+    page = socket.assigns[:page] || 1
+    page_size = socket.assigns[:page_size] || @default_page_size
+    public_page = socket.assigns[:public_page] || 1
 
     if user_id do
-      owned = Diagrams.list_diagrams_by_tags(user_id, tag_filter, :owned)
+      # Get all owned diagrams to count total, then paginate
+      all_owned = Diagrams.list_diagrams_by_tags(user_id, tag_filter, :owned)
+      total_owned = length(all_owned)
+
+      # Paginate owned diagrams
+      owned =
+        all_owned
+        |> Enum.drop((page - 1) * page_size)
+        |> Enum.take(page_size)
+
       bookmarked = Diagrams.list_diagrams_by_tags(user_id, tag_filter, :bookmarked)
 
       # For logged-in users, respect their show_public_diagrams preference
       show_public = socket.assigns.current_user.show_public_diagrams
 
+      # Always get public diagrams (filtered by tags) for count
+      all_public = Diagrams.list_public_diagrams(tag_filter)
+      total_public = length(all_public)
+
+      # Paginate public diagrams with separate page
       public =
         if show_public do
-          Diagrams.list_public_diagrams()
+          all_public
+          |> Enum.drop((public_page - 1) * page_size)
+          |> Enum.take(page_size)
         else
           []
         end
 
       socket
       |> assign(:owned_diagrams, owned)
+      |> assign(:total_owned_diagrams, total_owned)
       |> assign(:bookmarked_diagrams, bookmarked)
       |> assign(:public_diagrams, public)
+      |> assign(:total_public_diagrams, total_public)
       |> assign(:show_public_diagrams, show_public)
     else
-      # For logged-out users, show public diagrams by default for discovery
+      # For logged-out users, show public diagrams filtered by tags
+      all_public = Diagrams.list_public_diagrams(tag_filter)
+      total_public = length(all_public)
+
+      # Paginate public diagrams with separate page
+      public =
+        all_public
+        |> Enum.drop((public_page - 1) * page_size)
+        |> Enum.take(page_size)
+
       socket
       |> assign(:owned_diagrams, [])
+      |> assign(:total_owned_diagrams, 0)
       |> assign(:bookmarked_diagrams, [])
-      |> assign(:public_diagrams, Diagrams.list_public_diagrams())
+      |> assign(:public_diagrams, public)
+      |> assign(:total_public_diagrams, total_public)
       |> assign(:show_public_diagrams, true)
     end
   end
 
   defp load_tags(socket) do
     user_id = socket.assigns.current_user && socket.assigns.current_user.id
+    show_public = socket.assigns[:show_public_diagrams] || false
 
-    if user_id do
-      socket
-      |> assign(:available_tags, Diagrams.list_available_tags(user_id))
-      |> assign(:tag_counts, Diagrams.get_tag_counts(user_id))
-    else
-      socket
-    end
+    tag_counts = compute_tag_counts(user_id, show_public)
+    available_tags = tag_counts |> Map.keys() |> Enum.sort()
+
+    socket
+    |> assign(:available_tags, available_tags)
+    |> assign(:tag_counts, tag_counts)
+  end
+
+  defp compute_tag_counts(nil, _show_public) do
+    Diagrams.get_public_tag_counts()
+  end
+
+  defp compute_tag_counts(user_id, true) do
+    user_tags = Diagrams.get_tag_counts(user_id)
+    public_tags = Diagrams.get_public_tag_counts()
+    Map.merge(user_tags, public_tags, fn _k, v1, v2 -> v1 + v2 end)
+  end
+
+  defp compute_tag_counts(user_id, false) do
+    Diagrams.get_tag_counts(user_id)
   end
 
   defp load_filters(socket) do
@@ -894,141 +1045,80 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-1">
           <%!-- Left Sidebar --%>
           <div class="lg:col-span-1 flex flex-col gap-3">
-            <%!-- Documents Section --%>
-            <div class="bg-slate-900 rounded-xl p-3">
-              <h2 class="text-lg font-semibold mb-2">Source Documents</h2>
-
-              <form phx-change="validate" phx-submit="save" id="upload-form">
-                <div class="space-y-2 mb-3">
-                  <div
-                    class="border-2 border-dashed border-slate-700 rounded-lg p-4 text-center cursor-pointer hover:border-slate-600 transition"
-                    phx-drop-target={@uploads.document.ref}
-                  >
-                    <.live_file_input upload={@uploads.document} class="hidden" />
-                    <label for={@uploads.document.ref} class="cursor-pointer">
-                      <div class="text-slate-400">
-                        <p class="text-xs">Click or drag PDF/MD</p>
-                      </div>
-                    </label>
-                  </div>
-
-                  <%= for entry <- @uploads.document.entries do %>
-                    <div class="text-xs text-slate-300">
-                      {entry.client_name}
+            <%!-- Upload Zone (compact when no documents) --%>
+            <form phx-change="validate" phx-submit="save" id="upload-form">
+              <div
+                class="border-2 border-dashed border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-600 transition bg-slate-900/50"
+                phx-drop-target={@uploads.document.ref}
+              >
+                <.live_file_input upload={@uploads.document} class="hidden" />
+                <label for={@uploads.document.ref} class="cursor-pointer">
+                  <div class="text-slate-400">
+                    <div class="flex items-center justify-center gap-2 mb-1">
+                      <.icon name="hero-arrow-up-tray" class="w-4 h-4" />
+                      <span class="text-xs font-medium">Upload a document</span>
                     </div>
-                  <% end %>
-
-                  <button
-                    type="submit"
-                    class="w-full px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 rounded transition"
-                    disabled={@uploads.document.entries == []}
-                  >
-                    Upload
-                  </button>
-                </div>
-              </form>
-
-              <div class="space-y-0.5 max-h-48 overflow-y-auto">
-                <%= for doc <- @documents do %>
-                  <div class="px-2 py-1 rounded bg-slate-800/50">
-                    <div class="flex items-center justify-between">
-                      <span class="text-xs font-medium truncate">{doc.title}</span>
-                      <span class={[
-                        "text-xs px-1.5 py-0.5 rounded font-medium",
-                        doc.status == :ready && "bg-green-900/50 text-green-300",
-                        doc.status == :processing &&
-                          "bg-yellow-900/50 text-yellow-300 animate-pulse",
-                        doc.status == :uploaded && "bg-blue-900/50 text-blue-300",
-                        doc.status == :error && "bg-red-900/50 text-red-300"
-                      ]}>
-                        {format_status(doc.status)}
-                      </span>
-                    </div>
-                    <%= if doc.status == :error and doc.error_message do %>
-                      <div class="text-xs text-red-400 mt-1">
-                        {doc.error_message}
-                      </div>
-                    <% end %>
+                    <p class="text-xs text-slate-500">
+                      Drop a PDF or Markdown file to generate diagrams from its content
+                    </p>
                   </div>
-                <% end %>
-
-                <%= if @documents == [] do %>
-                  <p class="text-xs text-slate-400 text-center py-4">No documents yet</p>
-                <% end %>
-              </div>
-            </div>
-
-            <%!-- Diagrams Section --%>
-            <div class="bg-slate-900 rounded-xl p-4 flex flex-col overflow-hidden">
-              <%!-- Tag Filter Input --%>
-              <div class="mb-3">
-                <form phx-submit="add_tag_to_filter" class="w-full">
-                  <div class="flex gap-2">
-                    <input
-                      type="text"
-                      name="tag"
-                      value={@new_tag_input}
-                      placeholder="Filter by tag..."
-                      phx-change="update_tag_input"
-                      list="tag-suggestions"
-                      class="flex-1 px-3 py-2 text-sm bg-slate-800 border border-slate-700 rounded focus:border-blue-500 focus:outline-none"
-                    />
-                    <datalist id="tag-suggestions">
-                      <%= for tag <- @available_tags do %>
-                        <option value={tag}>{tag}</option>
-                      <% end %>
-                    </datalist>
-                    <button
-                      type="submit"
-                      class="px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 rounded transition"
-                    >
-                      Add
-                    </button>
-                  </div>
-                </form>
+                </label>
               </div>
 
-              <%!-- Active Filter Chips --%>
-              <%= if @active_tag_filter != [] do %>
-                <div class="flex flex-wrap gap-2 mb-3">
-                  <%= for tag <- @active_tag_filter do %>
-                    <div class="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
-                      <span>{tag}</span>
-                      <button
-                        type="button"
-                        phx-click="remove_tag_from_filter"
-                        phx-value-tag={tag}
-                        class="hover:bg-blue-200 rounded-full p-0.5"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  <% end %>
-                  <button
-                    type="button"
-                    phx-click="clear_filter"
-                    class="text-sm text-slate-400 hover:text-slate-300"
-                  >
-                    Clear all
-                  </button>
+              <%= for entry <- @uploads.document.entries do %>
+                <div class="text-xs text-slate-300 mt-1">
+                  {entry.client_name}
                 </div>
               <% end %>
 
-              <%!-- Save Current Filter Button --%>
-              <%= if @current_user && @active_tag_filter != [] do %>
+              <%= if @uploads.document.entries != [] do %>
                 <button
-                  phx-click="show_save_filter_modal"
-                  class="mb-3 px-3 py-2 text-sm bg-green-600 hover:bg-green-700 rounded transition"
+                  type="submit"
+                  class="w-full mt-2 px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 rounded transition"
                 >
-                  Save Current Filter
+                  Upload
                 </button>
               <% end %>
+            </form>
 
+            <%!-- Documents Section (only shown when documents exist) --%>
+            <%= if @documents != [] do %>
+              <div class="bg-slate-900 rounded-xl p-3 mt-3">
+                <h2 class="text-lg font-semibold mb-2">Source Documents</h2>
+                <div class="space-y-0.5 max-h-48 overflow-y-auto">
+                  <%= for doc <- @documents do %>
+                    <div class="px-2 py-1 rounded bg-slate-800/50">
+                      <div class="flex items-center justify-between">
+                        <span class="text-xs font-medium truncate">{doc.title}</span>
+                        <span class={[
+                          "text-xs px-1.5 py-0.5 rounded font-medium",
+                          doc.status == :ready && "bg-green-900/50 text-green-300",
+                          doc.status == :processing &&
+                            "bg-yellow-900/50 text-yellow-300 animate-pulse",
+                          doc.status == :uploaded && "bg-blue-900/50 text-blue-300",
+                          doc.status == :error && "bg-red-900/50 text-red-300"
+                        ]}>
+                          {format_status(doc.status)}
+                        </span>
+                      </div>
+                      <%= if doc.status == :error and doc.error_message do %>
+                        <div class="text-xs text-red-400 mt-1">
+                          {doc.error_message}
+                        </div>
+                      <% end %>
+                    </div>
+                  <% end %>
+                </div>
+              </div>
+            <% end %>
+
+            <%!-- Diagrams Section --%>
+            <div class="bg-slate-900 rounded-xl p-4 flex flex-col overflow-hidden flex-1">
               <%!-- Tag Cloud - clickable tags for filtering --%>
               <%= if @tag_counts != %{} do %>
                 <div class="mb-3 pb-3 border-b border-slate-800">
-                  <h3 class="text-sm font-semibold mb-2 text-slate-400">AVAILABLE TAGS</h3>
-                  <div class="flex flex-wrap gap-1.5">
+                  <h2 class="text-lg font-semibold mb-2">Available Tags ({map_size(@tag_counts)})</h2>
+                  <div class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
                     <%= for {tag, count} <- Enum.sort_by(@tag_counts, fn {_tag, count} -> -count end) do %>
                       <button
                         type="button"
@@ -1051,10 +1141,50 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                 </div>
               <% end %>
 
+              <%!-- Active Filter Display (below tag cloud, matching style) --%>
+              <%= if @active_tag_filter != [] do %>
+                <div class="mb-3 pb-3 border-b border-slate-800">
+                  <div class="flex items-center gap-2 mb-2">
+                    <span class="text-xs text-slate-400">Filter:</span>
+                    <div class="flex flex-wrap gap-1.5">
+                      <%= for tag <- @active_tag_filter do %>
+                        <button
+                          type="button"
+                          phx-click="remove_tag_from_filter"
+                          phx-value-tag={tag}
+                          class="inline-flex items-center gap-1 px-2 py-1 bg-blue-600 text-white rounded-full text-xs transition hover:bg-blue-700"
+                        >
+                          <span>{tag}</span>
+                          <span class="text-blue-200">✕</span>
+                        </button>
+                      <% end %>
+                    </div>
+                  </div>
+                  <%!-- Clear and Save buttons on same line --%>
+                  <div class="flex items-center gap-2">
+                    <button
+                      type="button"
+                      phx-click="clear_filter"
+                      class="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded-full transition"
+                    >
+                      Clear
+                    </button>
+                    <%= if @current_user do %>
+                      <button
+                        phx-click="show_save_filter_modal"
+                        class="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-white rounded-full transition"
+                      >
+                        Save Filter
+                      </button>
+                    <% end %>
+                  </div>
+                </div>
+              <% end %>
+
               <%!-- Pinned Filters Section --%>
               <%= if @pinned_filters != [] do %>
                 <div class="mb-3 pb-3 border-b border-slate-800">
-                  <h3 class="text-sm font-semibold mb-2 text-slate-400">PINNED FILTERS</h3>
+                  <h2 class="text-lg font-semibold mb-2">Pinned Filters</h2>
                   <%= for filter <- @pinned_filters do %>
                     <% count = Diagrams.get_saved_filter_count(@current_user.id, filter) %>
                     <div class="flex items-center justify-between py-2 px-3 hover:bg-slate-800/50 rounded group mb-1">
@@ -1102,11 +1232,67 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                 </div>
               <% end %>
 
-              <%!-- MY DIAGRAMS Section --%>
+              <%!-- My Diagrams Section --%>
               <div class="mb-4">
-                <h2 class="text-lg font-semibold mb-2 text-slate-300">
-                  MY DIAGRAMS ({length(@owned_diagrams)})
+                <h2 class="text-lg font-semibold mb-2">
+                  My Diagrams ({@total_owned_diagrams})
                 </h2>
+
+                <%!-- Pagination Controls --%>
+                <% total_pages = max(1, ceil(@total_owned_diagrams / @page_size)) %>
+                <%= if @total_owned_diagrams > 0 do %>
+                  <div class="flex items-center justify-between mb-3 pb-2 border-b border-slate-800 text-xs">
+                    <form phx-change="change_page_size" class="flex items-center gap-2">
+                      <span class="text-slate-400">Show:</span>
+                      <select
+                        name="page_size"
+                        class="bg-slate-800 text-slate-300 rounded px-2 py-1 text-xs"
+                      >
+                        <%= for size <- @page_size_options do %>
+                          <option value={size} selected={@page_size == size}>
+                            {size}
+                          </option>
+                        <% end %>
+                      </select>
+                    </form>
+                    <div class="flex items-center gap-2">
+                      <span class="text-slate-400">
+                        Page {@page} of {total_pages}
+                      </span>
+                      <div class="flex gap-1">
+                        <button
+                          type="button"
+                          phx-click="change_page"
+                          phx-value-page={@page - 1}
+                          disabled={@page == 1}
+                          class={[
+                            "px-2 py-1 rounded transition",
+                            @page == 1 && "bg-slate-800 text-slate-600 cursor-not-allowed",
+                            @page > 1 && "bg-slate-700 hover:bg-slate-600 text-slate-300"
+                          ]}
+                        >
+                          ←
+                        </button>
+                        <button
+                          type="button"
+                          phx-click="change_page"
+                          phx-value-page={@page + 1}
+                          disabled={@page >= total_pages}
+                          class={[
+                            "px-2 py-1 rounded transition",
+                            @page >= total_pages &&
+                              "bg-slate-800 text-slate-600 cursor-not-allowed",
+                            @page < total_pages &&
+                              "bg-slate-700 hover:bg-slate-600 text-slate-300"
+                          ]}
+                        >
+                          →
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                <% end %>
+
                 <div class="space-y-2 max-h-64 overflow-y-auto">
                   <%= for diagram <- @owned_diagrams do %>
                     <div
@@ -1139,11 +1325,11 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                 </div>
               </div>
 
-              <%!-- FORKED DIAGRAMS Section --%>
+              <%!-- Bookmarked Diagrams Section --%>
               <%= if @bookmarked_diagrams != [] do %>
                 <div class="mb-4 border-t border-slate-800 pt-4">
-                  <h2 class="text-lg font-semibold mb-2 text-slate-300">
-                    FORKED DIAGRAMS ({length(@bookmarked_diagrams)})
+                  <h2 class="text-lg font-semibold mb-2">
+                    Bookmarked Diagrams ({length(@bookmarked_diagrams)})
                   </h2>
                   <div class="space-y-2 max-h-64 overflow-y-auto">
                     <%= for diagram <- @bookmarked_diagrams do %>
@@ -1172,11 +1358,11 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                 </div>
               <% end %>
 
-              <%!-- PUBLIC DIAGRAMS Section - visible to all users --%>
+              <%!-- Public Diagrams Section - visible to all users --%>
               <div class="border-t border-slate-800 pt-4">
                 <div class="flex items-center justify-between mb-2">
-                  <h2 class="text-lg font-semibold text-slate-300">
-                    PUBLIC DIAGRAMS
+                  <h2 class="text-lg font-semibold">
+                    Public Diagrams ({@total_public_diagrams})
                   </h2>
                   <%!-- Toggle only shown for logged-in users --%>
                   <%= if @current_user do %>
@@ -1198,6 +1384,63 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                 </div>
 
                 <%= if @show_public_diagrams do %>
+                  <%!-- Public Diagrams Pagination Controls --%>
+                  <% public_total_pages = max(1, ceil(@total_public_diagrams / @page_size)) %>
+                  <%= if @total_public_diagrams > 0 do %>
+                    <div class="flex items-center justify-between mb-3 pb-2 border-b border-slate-800 text-xs">
+                      <form phx-change="change_page_size" class="flex items-center gap-2">
+                        <span class="text-slate-400">Show:</span>
+                        <select
+                          name="page_size"
+                          class="bg-slate-800 text-slate-300 rounded px-2 py-1 text-xs"
+                        >
+                          <%= for size <- @page_size_options do %>
+                            <option value={size} selected={@page_size == size}>
+                              {size}
+                            </option>
+                          <% end %>
+                        </select>
+                      </form>
+                      <div class="flex items-center gap-2">
+                        <span class="text-slate-400">
+                          Page {@public_page} of {public_total_pages}
+                        </span>
+                        <div class="flex gap-1">
+                          <button
+                            type="button"
+                            phx-click="change_public_page"
+                            phx-value-page={@public_page - 1}
+                            disabled={@public_page <= 1}
+                            class={[
+                              "px-2 py-1 rounded transition",
+                              @public_page <= 1 &&
+                                "bg-slate-800 text-slate-600 cursor-not-allowed",
+                              @public_page > 1 &&
+                                "bg-slate-700 hover:bg-slate-600 text-slate-300"
+                            ]}
+                          >
+                            ←
+                          </button>
+                          <button
+                            type="button"
+                            phx-click="change_public_page"
+                            phx-value-page={@public_page + 1}
+                            disabled={@public_page >= public_total_pages}
+                            class={[
+                              "px-2 py-1 rounded transition",
+                              @public_page >= public_total_pages &&
+                                "bg-slate-800 text-slate-600 cursor-not-allowed",
+                              @public_page < public_total_pages &&
+                                "bg-slate-700 hover:bg-slate-600 text-slate-300"
+                            ]}
+                          >
+                            →
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  <% end %>
+
                   <div class="space-y-2 max-h-64 overflow-y-auto">
                     <%= for diagram <- @public_diagrams do %>
                       <div
@@ -1229,6 +1472,18 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                     <% end %>
                   </div>
                 <% end %>
+              </div>
+
+              <%!-- Tips Section --%>
+              <div class="mt-auto pt-4 border-t border-slate-800">
+                <h2 class="text-lg font-semibold mb-2 flex items-center gap-2">
+                  <.icon name="hero-light-bulb" class="w-4 h-4 text-amber-400" /> Tips
+                </h2>
+                <div class="text-xs text-slate-400 space-y-1">
+                  <div>• Click tags to filter diagrams</div>
+                  <div>• Save filters for quick access</div>
+                  <div>• Fork public diagrams to customize</div>
+                </div>
               </div>
             </div>
           </div>

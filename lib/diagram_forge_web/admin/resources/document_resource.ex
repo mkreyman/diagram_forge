@@ -50,7 +50,7 @@ defmodule DiagramForgeWeb.Admin.DocumentResource do
         label: "Title",
         searchable: true
       },
-      user_id: %{
+      user: %{
         module: Backpex.Fields.BelongsTo,
         label: "User",
         display_field: :email,
@@ -63,18 +63,18 @@ defmodule DiagramForgeWeb.Admin.DocumentResource do
         module: Backpex.Fields.Select,
         label: "Source Type",
         options: [
-          %{label: "PDF", value: :pdf},
-          %{label: "Markdown", value: :markdown}
+          {"PDF", :pdf},
+          {"Markdown", :markdown}
         ]
       },
       status: %{
         module: Backpex.Fields.Select,
         label: "Status",
         options: [
-          %{label: "Uploaded", value: :uploaded},
-          %{label: "Processing", value: :processing},
-          %{label: "Ready", value: :ready},
-          %{label: "Error", value: :error}
+          {"Uploaded", :uploaded},
+          {"Processing", :processing},
+          {"Ready", :ready},
+          {"Error", :error}
         ]
       },
       path: %{

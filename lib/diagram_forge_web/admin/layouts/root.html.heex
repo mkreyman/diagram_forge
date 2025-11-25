@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="csrf-token" content={get_csrf_token()} />
+    <link rel="icon" type="image/png" href={~p"/images/favicon.png"} />
+    <.live_title suffix=" - DiagramForge Admin">
+      {assigns[:page_title] || "Admin"}
+    </.live_title>
+    <link phx-track-static rel="stylesheet" href={~p"/assets/css/app.css"} />
+    <script defer phx-track-static type="text/javascript" src={~p"/assets/js/app.js"}>
+    </script>
+  </head>
+  <body class="h-full antialiased">
+    {@inner_content}
+  </body>
+</html>

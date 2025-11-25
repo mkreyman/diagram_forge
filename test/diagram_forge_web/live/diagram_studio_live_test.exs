@@ -206,14 +206,14 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
     test "displays upload area and accepts files", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 
-      # Verify upload area exists
+      # Verify upload area exists with instructional text
       assert has_element?(view, "#upload-form")
-      assert render(view) =~ "Click or drag PDF/MD"
+      assert render(view) =~ "Upload a document"
+      assert render(view) =~ "PDF or Markdown"
 
-      # Verify upload button is disabled when no file is selected
-      assert view
-             |> element("button[type='submit'][disabled]")
-             |> has_element?()
+      # Verify upload button is not shown when no file is selected
+      # (button only appears after selecting a file)
+      refute has_element?(view, "#upload-form button[type='submit']")
     end
   end
 
@@ -232,10 +232,10 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
       assert html =~ elixir_diagram.title
       assert html =~ rust_diagram.title
 
-      # Add "elixir" tag to filter via form submission
+      # Add "elixir" tag to filter by clicking in tag cloud
       view
-      |> form("form[phx-submit='add_tag_to_filter']", %{"tag" => "elixir"})
-      |> render_submit()
+      |> element("button[phx-click='add_tag_to_filter'][phx-value-tag='elixir']")
+      |> render_click()
 
       html = render(view)
 
@@ -256,10 +256,10 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
       conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
       {:ok, view, _html} = live(conn, ~p"/")
 
-      # Add tag to filter first
+      # Add tag to filter first by clicking in tag cloud
       view
-      |> form("form[phx-submit='add_tag_to_filter']", %{"tag" => "elixir"})
-      |> render_submit()
+      |> element("button[phx-click='add_tag_to_filter'][phx-value-tag='elixir']")
+      |> render_click()
 
       # Remove the tag from filter
       view
@@ -283,10 +283,10 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
       conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
       {:ok, view, _html} = live(conn, ~p"/")
 
-      # Add multiple tags to filter
+      # Add tag to filter by clicking in tag cloud
       view
-      |> form("form[phx-submit='add_tag_to_filter']", %{"tag" => "elixir"})
-      |> render_submit()
+      |> element("button[phx-click='add_tag_to_filter'][phx-value-tag='elixir']")
+      |> render_click()
 
       # Clear all filters
       view
@@ -312,15 +312,15 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
       conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
       {:ok, view, _html} = live(conn, ~p"/")
 
-      # Add first tag
+      # Add first tag by clicking in tag cloud
       view
-      |> form("form[phx-submit='add_tag_to_filter']", %{"tag" => "elixir"})
-      |> render_submit()
+      |> element("button[phx-click='add_tag_to_filter'][phx-value-tag='elixir']")
+      |> render_click()
 
-      # Add second tag
+      # Add second tag by clicking in tag cloud
       view
-      |> form("form[phx-submit='add_tag_to_filter']", %{"tag" => "phoenix"})
-      |> render_submit()
+      |> element("button[phx-click='add_tag_to_filter'][phx-value-tag='phoenix']")
+      |> render_click()
 
       html = render(view)
 
@@ -340,10 +340,10 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
       conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
       {:ok, view, _html} = live(conn, ~p"/")
 
-      # Add tag to create an active filter
+      # Add tag to create an active filter by clicking in tag cloud
       view
-      |> form("form[phx-submit='add_tag_to_filter']", %{"tag" => "elixir"})
-      |> render_submit()
+      |> element("button[phx-click='add_tag_to_filter'][phx-value-tag='elixir']")
+      |> render_click()
 
       # Show the save filter modal
       view
@@ -772,17 +772,11 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
     end
 
     test "unauthenticated user cannot save filter", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/")
-
-      # Try to add a tag - should work for filtering
-      view
-      |> form("form[phx-submit='add_tag_to_filter']", %{"tag" => "elixir"})
-      |> render_submit()
-
-      html = render(view)
+      {:ok, _view, html} = live(conn, ~p"/")
 
       # Save button should not be visible for unauthenticated users
-      refute html =~ "Save Current Filter"
+      # They can't save filters because they're not logged in
+      refute html =~ "Save Filter"
     end
 
     test "user can only delete their own filters", %{conn: conn} do
