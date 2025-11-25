@@ -197,39 +197,51 @@ defmodule DiagramForge.AI.Prompts do
 end
 ```
 
-### 5. Seed Default Prompts
+### 5. Admin Page Behavior
+
+The admin page should:
+
+1. **List all known prompt keys** (from a hardcoded list of valid keys)
+2. **Display effective content** - DB value if exists, otherwise hardcoded default
+3. **On save** - INSERT if no DB record exists, UPDATE if it does
+4. **Show indicator** - whether viewing default or customized version
 
 ```elixir
-# priv/repo/seeds/prompts.exs
-alias DiagramForge.AI.Prompt
-alias DiagramForge.Repo
+# In the AI context, provide a function for admin to get all prompts with their status
+def list_all_prompts_with_status do
+  db_prompts = Repo.all(Prompt) |> Map.new(&{&1.key, &1})
 
-prompts = [
-  %{
-    key: "concept_system",
-    description: "System prompt for concept extraction from documents",
-    content: """
-    You are a technical teaching assistant.
-    ...rest of prompt...
-    """
-  },
-  %{
-    key: "diagram_system",
-    description: "System prompt for diagram generation",
-    content: """
-    You generate small, interview-friendly technical diagrams in Mermaid syntax.
-    ...rest of prompt...
-    """
-  }
-]
-
-for prompt_attrs <- prompts do
-  case Repo.get_by(Prompt, key: prompt_attrs.key) do
-    nil -> Repo.insert!(%Prompt{} |> Prompt.changeset(prompt_attrs))
-    existing -> existing
+  for {key, description} <- known_prompt_keys() do
+    case Map.get(db_prompts, key) do
+      nil ->
+        %{
+          key: key,
+          description: description,
+          content: default_prompt(key),
+          source: :default,
+          db_record: nil
+        }
+      prompt ->
+        %{
+          key: key,
+          description: description,
+          content: prompt.content,
+          source: :database,
+          db_record: prompt
+        }
+    end
   end
 end
+
+defp known_prompt_keys do
+  [
+    {"concept_system", "System prompt for concept extraction from documents"},
+    {"diagram_system", "System prompt for diagram generation"}
+  ]
+end
 ```
+
+**No seed script needed** - the database starts empty and hardcoded defaults are used until an admin customizes a prompt.
 
 ### 6. Start Cache in Application
 
