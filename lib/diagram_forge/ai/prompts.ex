@@ -28,10 +28,18 @@ defmodule DiagramForge.AI.Prompts do
   - Use at most 10 nodes and 15 edges.
   - Prefer 'flowchart' or 'sequenceDiagram' unless another type is clearly better.
   - Use concise labels, avoid sentences on nodes.
-  - IMPORTANT: Quote labels containing special characters like curly braces, colons, or pipes:
-    - Edge labels with special chars: -->|"{:ok, pid}"| not -->|{:ok, pid}|
-    - Node labels with special chars: A["GenServer.call/3"] not A[GenServer.call/3]
-  - Only output strictly valid JSON with the requested fields.
+
+  CRITICAL Mermaid syntax rules to avoid errors:
+  - Edge labels with special chars MUST use quotes: -->|"{:ok, pid}"| not -->|{:ok, pid}|
+  - Node labels with special chars MUST use quotes: A["GenServer.call/3"]
+  - AVOID quotes inside node labels. Instead of: A[raise "error"] use: A[raise error] or A[Raise Error]
+  - Parentheses in labels can break parsing: use A["func(arg)"] or simplify to A[func arg]
+  - Curly braces {} are NEVER allowed unquoted - they define shapes in Mermaid
+  - Pipes | in labels must be quoted or escaped
+  - Keep labels SHORT - use abbreviations or simplify text with quotes/special chars
+  - When in doubt, simplify the label text rather than adding complex escaping
+
+  Only output strictly valid JSON with the requested fields.
   """
 
   # Template uses {{MERMAID_CODE}} and {{SUMMARY}} placeholders for interpolation
@@ -46,13 +54,20 @@ defmodule DiagramForge.AI.Prompts do
   {{SUMMARY}}
 
   Please fix the Mermaid syntax so it renders correctly. Common issues include:
-  - Missing or incorrect node IDs
   - Curly braces in edge labels MUST be quoted: -->|"{:ok, pid}"| not -->|{:ok, pid}|
-  - Special characters in node labels need quotes: A["Label with (parens)"]
-  - Unescaped special characters in labels (use double quotes for labels with special chars)
-  - Invalid arrow syntax
-  - Missing semicolons or newlines
+  - Curly braces {} define shapes in Mermaid - NEVER use them unquoted in labels
+  - Nested quotes in node labels: A[raise "error"] should become A[raise error] or A["raise error"] with inner quotes removed
+  - Parentheses in node labels: A[func(arg)] should become A["func(arg)"] or A[func arg]
+  - Pipes | in labels must be quoted
+  - Special characters in node labels need quotes: A["Label with special: chars"]
+  - Missing or incorrect node IDs (each node needs a unique ID like A, B, C)
+  - Invalid arrow syntax (use --> not -> for flowcharts)
   - Incorrect diagram type declaration
+
+  SIMPLIFY when fixing:
+  - Remove nested quotes entirely rather than trying to escape them
+  - Shorten labels that have complex special characters
+  - Use simple alphanumeric labels where possible
 
   Return ONLY valid JSON with the fixed mermaid code:
 

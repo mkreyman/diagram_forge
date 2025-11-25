@@ -717,27 +717,29 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   @impl true
   def handle_event("save", _params, socket) do
-    # Prevent double-clicks
+    # Prevent double-clicks while processing
     if socket.assigns.uploading do
       {:noreply, socket}
     else
-      process_upload(socket)
+      # Set uploading state immediately for UI feedback
+      socket = assign(socket, :uploading, true)
+
+      uploaded_files =
+        consume_uploaded_entries(socket, :document, fn %{path: path}, entry ->
+          process_uploaded_entry(path, entry, socket.assigns.current_user.id)
+        end)
+
+      {:noreply,
+       socket
+       |> assign(:uploading, false)
+       |> assign(:documents, list_documents())
+       |> put_flash(:info, "Uploaded #{length(uploaded_files)} file(s)")}
     end
   end
 
-  defp process_upload(socket) do
-    socket = assign(socket, :uploading, true)
-
-    uploaded_files =
-      consume_uploaded_entries(socket, :document, fn %{path: path}, entry ->
-        process_uploaded_entry(path, entry, socket.assigns.current_user.id)
-      end)
-
-    {:noreply,
-     socket
-     |> assign(:uploading, false)
-     |> assign(:documents, list_documents())
-     |> put_flash(:info, "Uploaded #{length(uploaded_files)} file(s)")}
+  @impl true
+  def handle_event("cancel_upload", %{"ref" => ref}, socket) do
+    {:noreply, cancel_upload(socket, :document, ref)}
   end
 
   defp process_uploaded_entry(path, entry, user_id) do
@@ -1239,9 +1241,31 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                 </label>
               </div>
 
+              <%!-- Show selected files --%>
               <%= for entry <- @uploads.document.entries do %>
-                <div class="text-xs text-slate-300 mt-1">
-                  {entry.client_name}
+                <div class="mt-2 p-2 bg-slate-800 rounded">
+                  <div class="flex items-center justify-between text-xs text-slate-300">
+                    <span class="truncate">{entry.client_name}</span>
+                    <button
+                      type="button"
+                      phx-click="cancel_upload"
+                      phx-value-ref={entry.ref}
+                      class="text-red-400 hover:text-red-300"
+                      aria-label="Cancel upload"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <%!-- Progress bar during upload --%>
+                  <%= if entry.progress > 0 and entry.progress < 100 do %>
+                    <div class="w-full bg-slate-700 rounded-full h-1.5 mt-1">
+                      <div
+                        class="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+                        style={"width: #{entry.progress}%"}
+                      >
+                      </div>
+                    </div>
+                  <% end %>
                 </div>
                 <%= for err <- upload_errors(@uploads.document, entry) do %>
                   <p class="text-xs text-red-400 mt-1">{upload_error_to_string(err)}</p>
@@ -1252,43 +1276,14 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                 <p class="text-xs text-red-400 mt-1">{upload_error_to_string(err)}</p>
               <% end %>
 
+              <%!-- Upload button with immediate loading feedback --%>
               <%= if @uploads.document.entries != [] do %>
                 <button
                   type="submit"
-                  disabled={@uploading}
-                  class={[
-                    "w-full mt-2 px-3 py-2 text-sm rounded transition flex items-center justify-center gap-2",
-                    @uploading && "bg-blue-600/50 cursor-not-allowed",
-                    !@uploading && "bg-blue-600 hover:bg-blue-700"
-                  ]}
+                  phx-disable-with="Uploading..."
+                  class="w-full mt-2 px-3 py-2 text-sm rounded transition bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  <%= if @uploading do %>
-                    <svg
-                      class="animate-spin h-4 w-4"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        class="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        stroke-width="4"
-                      >
-                      </circle>
-                      <path
-                        class="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      >
-                      </path>
-                    </svg>
-                    <span>Uploading...</span>
-                  <% else %>
-                    Upload
-                  <% end %>
+                  <.icon name="hero-arrow-up-tray" class="w-4 h-4" /> Upload
                 </button>
               <% end %>
             </form>
