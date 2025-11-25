@@ -248,20 +248,36 @@ defmodule DiagramForgeWeb.Admin.UsageDashboardLive do
         <div class="bg-base-100 rounded-lg border border-base-300 p-6 shadow-sm">
           <h2 class="text-lg font-semibold text-base-content mb-4">Daily Cost Breakdown</h2>
           <div class="overflow-x-auto" id="daily-chart">
-            <div class="flex items-end h-48 gap-1 min-w-[600px]">
-              <div
-                :for={day <- @daily_costs}
-                class="flex flex-col items-center flex-1"
-                title={"#{day.date}: $#{Usage.format_cents(day.cost_cents || 0)}"}
-              >
+            <div class="flex min-w-[600px]">
+              <!-- Y Axis -->
+              <div class="relative w-12 h-48 mr-2 flex-shrink-0">
                 <div
-                  class="w-full bg-primary rounded-t"
-                  style={"height: #{bar_height(day.cost_cents, @max_daily_cost)}px"}
+                  :for={{cents, position} <- y_axis_ticks(@max_daily_cost)}
+                  class="absolute right-0 flex items-center"
+                  style={"bottom: #{position}px"}
                 >
+                  <span class="text-xs text-base-content/50 mr-1">
+                    ${Usage.format_cents(cents)}
+                  </span>
+                  <div class="w-2 border-t border-base-content/20"></div>
                 </div>
-                <span class="text-xs text-base-content/50 mt-1">
-                  {Calendar.strftime(day.date, "%d")}
-                </span>
+              </div>
+              <!-- Bars -->
+              <div class="flex-1 flex items-end h-48 gap-px border-l border-base-content/20">
+                <div
+                  :for={day <- @daily_costs}
+                  class="flex flex-col items-center flex-1"
+                  title={"#{day.date}: $#{Usage.format_cents(day.cost_cents || 0)}"}
+                >
+                  <div
+                    class="w-full bg-primary rounded-t"
+                    style={"height: #{bar_height(day.cost_cents, @max_daily_cost)}px"}
+                  >
+                  </div>
+                  <span class="text-xs text-base-content/50 mt-1">
+                    {Calendar.strftime(day.date, "%d")}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -552,6 +568,39 @@ defmodule DiagramForgeWeb.Admin.UsageDashboardLive do
   defp bar_height(cost, max) do
     min(max(round(cost / max * 160), 4), 160)
   end
+
+  # Generate Y axis ticks for the daily cost chart
+  # Returns list of {label, position_from_bottom} tuples
+  defp y_axis_ticks(0), do: [{0, 0}]
+
+  defp y_axis_ticks(max_cents) do
+    # Determine nice tick intervals based on max value
+    tick_count = 4
+    raw_interval = max_cents / tick_count
+
+    # Round to nice intervals (1, 2, 5, 10, 20, 50, 100, etc.)
+    nice_interval = nice_tick_interval(raw_interval)
+
+    # Generate tick values from 0 to max
+    0
+    |> Stream.iterate(&(&1 + nice_interval))
+    |> Enum.take_while(&(&1 <= max_cents + nice_interval))
+    |> Enum.map(fn cents ->
+      position = if max_cents > 0, do: round(cents / max_cents * 160), else: 0
+      {cents, min(position, 160)}
+    end)
+  end
+
+  defp nice_tick_interval(raw) when raw <= 1, do: 1
+  defp nice_tick_interval(raw) when raw <= 2, do: 2
+  defp nice_tick_interval(raw) when raw <= 5, do: 5
+  defp nice_tick_interval(raw) when raw <= 10, do: 10
+  defp nice_tick_interval(raw) when raw <= 20, do: 20
+  defp nice_tick_interval(raw) when raw <= 50, do: 50
+  defp nice_tick_interval(raw) when raw <= 100, do: 100
+  defp nice_tick_interval(raw) when raw <= 200, do: 200
+  defp nice_tick_interval(raw) when raw <= 500, do: 500
+  defp nice_tick_interval(raw), do: round(raw / 100) * 100
 
   defp user_email(user_id) do
     case DiagramForge.Repo.get(DiagramForge.Accounts.User, user_id) do
