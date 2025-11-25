@@ -388,6 +388,8 @@ defmodule DiagramForge.Diagrams do
   ## Options
 
     * `:ai_client` - AI client module to use (defaults to configured client)
+    * `:user_id` - User ID for usage tracking
+    * `:operation` - Operation type for usage tracking (defaults to "diagram_generation")
 
   """
   def generate_diagram_from_prompt(prompt, opts) do
@@ -405,12 +407,21 @@ defmodule DiagramForge.Diagrams do
   ## Options
 
     * `:ai_client` - AI client module to use (defaults to configured client)
+    * `:user_id` - User ID for usage tracking (required unless track_usage: false)
+    * `:operation` - Operation type for usage tracking (defaults to "syntax_fix")
+    * `:track_usage` - Whether to track token usage (default: true)
 
+  ## Raises
+
+  Raises `ArgumentError` if `:user_id` is missing when usage tracking is enabled.
   """
   def fix_diagram_syntax(%Diagram{} = diagram, opts \\ []) do
     alias DiagramForge.AI.Client
+    alias DiagramForge.AI.Options
     alias DiagramForge.AI.Prompts
 
+    # Validate options early - fail fast if user_id missing with tracking enabled
+    ai_opts = build_ai_opts!(opts, "syntax_fix")
     ai_client = opts[:ai_client] || Application.get_env(:diagram_forge, :ai_client, Client)
     user_prompt = Prompts.fix_mermaid_syntax_prompt(diagram.diagram_source, diagram.summary)
 
@@ -421,7 +432,7 @@ defmodule DiagramForge.Diagrams do
             %{"role" => "system", "content" => Prompts.diagram_system_prompt()},
             %{"role" => "user", "content" => user_prompt}
           ],
-          []
+          ai_opts
         )
         |> Jason.decode!()
 
@@ -445,12 +456,21 @@ defmodule DiagramForge.Diagrams do
   ## Options
 
     * `:ai_client` - AI client module to use (defaults to configured client)
+    * `:user_id` - User ID for usage tracking (required unless track_usage: false)
+    * `:operation` - Operation type for usage tracking (defaults to "syntax_fix")
+    * `:track_usage` - Whether to track token usage (default: true)
 
+  ## Raises
+
+  Raises `ArgumentError` if `:user_id` is missing when usage tracking is enabled.
   """
   def fix_diagram_syntax_source(diagram_source, summary, opts \\ []) do
     alias DiagramForge.AI.Client
+    alias DiagramForge.AI.Options
     alias DiagramForge.AI.Prompts
 
+    # Validate options early - fail fast if user_id missing with tracking enabled
+    ai_opts = build_ai_opts!(opts, "syntax_fix")
     ai_client = opts[:ai_client] || Application.get_env(:diagram_forge, :ai_client, Client)
     user_prompt = Prompts.fix_mermaid_syntax_prompt(diagram_source, summary)
 
@@ -461,7 +481,7 @@ defmodule DiagramForge.Diagrams do
             %{"role" => "system", "content" => Prompts.diagram_system_prompt()},
             %{"role" => "user", "content" => user_prompt}
           ],
-          []
+          ai_opts
         )
         |> Jason.decode!()
 
@@ -819,5 +839,22 @@ defmodule DiagramForge.Diagrams do
     user
     |> User.preferences_changeset(%{show_public_diagrams: show_public})
     |> Repo.update()
+  end
+
+  # ============================================================================
+  # AI Options Validation
+  # ============================================================================
+
+  # Validates and builds AI options, raising on invalid configuration.
+  # This ensures fail-fast behavior when required options are missing.
+  defp build_ai_opts!(opts, default_operation) do
+    alias DiagramForge.AI.Options
+
+    validated_opts =
+      opts
+      |> Keyword.put_new(:operation, default_operation)
+      |> Options.new!()
+
+    Options.to_keyword_list(validated_opts)
   end
 end

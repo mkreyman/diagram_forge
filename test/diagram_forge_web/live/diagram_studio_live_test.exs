@@ -60,7 +60,10 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
         "notes_md" => "# Notes\n\nTest notes"
       }
 
-      expect(MockAIClient, :chat!, fn _messages, _opts ->
+      # Verify that user_id and operation are properly passed to AI client
+      expect(MockAIClient, :chat!, fn _messages, opts ->
+        assert opts[:user_id] == user.id, "user_id must be passed to AI client for usage tracking"
+        assert opts[:operation] == "diagram_generation", "operation must be passed to AI client"
         Jason.encode!(ai_response)
       end)
 
@@ -119,7 +122,14 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
         "notes_md" => "# Notes\n\nTest notes"
       }
 
-      expect(MockAIClient, :chat!, fn _messages, _opts ->
+      # Unauthenticated users have track_usage: false since we can't attribute usage
+      expect(MockAIClient, :chat!, fn _messages, opts ->
+        assert opts[:user_id] == nil, "unauthenticated user should have nil user_id"
+
+        assert opts[:track_usage] == false,
+               "usage tracking should be disabled for unauthenticated users"
+
+        assert opts[:operation] == "diagram_generation", "operation must still be passed"
         Jason.encode!(ai_response)
       end)
 

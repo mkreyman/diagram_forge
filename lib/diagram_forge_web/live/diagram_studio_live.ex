@@ -791,7 +791,11 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   @impl true
   def handle_info({:do_generate_from_prompt, prompt}, socket) do
-    case Diagrams.generate_diagram_from_prompt(prompt, []) do
+    user_id = socket.assigns.current_user && socket.assigns.current_user.id
+    # If user is not authenticated, disable usage tracking since we can't attribute it
+    opts = build_ai_opts(user_id)
+
+    case Diagrams.generate_diagram_from_prompt(prompt, opts) do
       {:ok, diagram} ->
         {:noreply,
          socket
@@ -838,8 +842,9 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
   @impl true
   def handle_info({:do_fix_syntax, diagram}, socket) do
     user_id = socket.assigns.current_user.id
+    opts = build_ai_opts(user_id)
 
-    case Diagrams.fix_diagram_syntax(diagram) do
+    case Diagrams.fix_diagram_syntax(diagram, opts) do
       {:ok, fixed_source} ->
         case Diagrams.update_diagram(diagram, %{diagram_source: fixed_source}, user_id) do
           {:ok, updated_diagram} ->
@@ -866,7 +871,10 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
   @impl true
   def handle_info({:do_fix_generated_syntax, diagram}, socket) do
-    case Diagrams.fix_diagram_syntax_source(diagram.diagram_source, diagram.summary) do
+    user_id = socket.assigns.current_user && socket.assigns.current_user.id
+    opts = build_ai_opts(user_id)
+
+    case Diagrams.fix_diagram_syntax_source(diagram.diagram_source, diagram.summary, opts) do
       {:ok, fixed_source} ->
         updated_diagram = %{diagram | diagram_source: fixed_source}
 
@@ -1057,6 +1065,17 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
   defp visibility_tooltip(:unlisted), do: "Anyone with the link"
   defp visibility_tooltip(:public), do: "Discoverable by all"
   defp visibility_tooltip(_), do: ""
+
+  # Builds AI options with proper user_id handling.
+  # If user is not authenticated (nil user_id), disables usage tracking since
+  # we can't attribute the usage to anyone.
+  defp build_ai_opts(nil) do
+    [user_id: nil, track_usage: false]
+  end
+
+  defp build_ai_opts(user_id) do
+    [user_id: user_id]
+  end
 
   @impl true
   def render(assigns) do

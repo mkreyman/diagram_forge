@@ -97,6 +97,9 @@ defmodule DiagramForge.Diagrams.Workers.ProcessDocumentJob do
   defp generate_diagrams_from_chunks(doc, chunks, ai_opts) do
     total = length(chunks)
 
+    # Add user_id for usage tracking
+    ai_opts = Keyword.put(ai_opts, :user_id, doc.user_id)
+
     chunks
     |> Enum.with_index(1)
     |> Enum.reduce(0, fn {chunk, index}, count ->

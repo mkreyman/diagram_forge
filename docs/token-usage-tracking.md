@@ -509,35 +509,247 @@ Repo.insert!(%UsageAlertThreshold{
 
 ## Implementation Checklist
 
-### Phase 1: Schema & Core Logic
-- [ ] Create migrations for all tables
-- [ ] Create Ecto schemas (AIProvider, AIModel, AIModelPrice, TokenUsage, DailyAggregate, UsageAlertThreshold, UsageAlert)
-- [ ] Create `DiagramForge.Usage` context module
-- [ ] Modify `DiagramForge.AI.Client` to capture and return token usage
-- [ ] Update diagram generation calls to pass user_id and operation
-- [ ] Create seed data for OpenAI + gpt-4o-mini + current pricing
+### Phase 1: Schema & Core Logic ✅
+- [x] Create migrations for all tables
+- [x] Create Ecto schemas (AIProvider, AIModel, AIModelPrice, TokenUsage, DailyAggregate, UsageAlertThreshold, UsageAlert)
+- [x] Create `DiagramForge.Usage` context module
+- [x] Modify `DiagramForge.AI.Client` to capture and return token usage
+- [x] Update diagram generation calls to pass user_id and operation
+- [x] Create seed data for OpenAI + gpt-4o-mini + current pricing
 
-### Phase 2: Aggregation & Alerts
-- [ ] Create Oban worker for daily aggregation
-- [ ] Create Oban worker for alert checking
-- [ ] Configure Oban crontab for workers
-- [ ] Create alert mailer and email template
-- [ ] Test alert triggering
+### Phase 2: Aggregation & Alerts ✅
+- [x] Create Oban worker for daily aggregation
+- [x] Create Oban worker for alert checking
+- [x] Configure Oban crontab for workers
+- [x] Create alert mailer and email template
+- [x] Test alert triggering
 
-### Phase 3: Admin UI
-- [ ] Add Backpex resources for AIProvider, AIModel, AIModelPrice
-- [ ] Add Backpex resources for UsageAlertThreshold
-- [ ] Create Usage Dashboard LiveView with charts
-- [ ] Create Alert History page
-- [ ] Add dashboard widget to existing admin dashboard
-- [ ] Add navigation links for new pages
+### Phase 3: Admin UI ✅
+- [x] Add Backpex resources for AIProvider, AIModel, AIModelPrice
+- [x] Add Backpex resources for UsageAlertThreshold
+- [x] Create Usage Dashboard LiveView with charts
+- [x] Create Alert History page
+- [x] Add dashboard widget to existing admin dashboard
+- [x] Add navigation links for new pages
 
-### Phase 4: Polish
-- [ ] Add usage export (CSV)
-- [ ] Add date range filtering
-- [ ] Add model breakdown in usage dashboard
-- [ ] Write tests for cost calculation and aggregation
-- [ ] Documentation
+### Phase 4: Polish ✅
+- [x] Add usage export (CSV)
+- [x] Add date range filtering
+- [x] Add model breakdown in usage dashboard
+- [x] Write tests for cost calculation and aggregation
+- [x] Documentation
+
+---
+
+## Admin User Guide
+
+### Usage Dashboard
+
+Access the usage dashboard at `/admin/usage/dashboard`. This page provides:
+
+#### Summary Cards
+- **Total Cost**: Monthly cost in dollars
+- **Request Count**: Number of API requests made
+- **Total Tokens**: Combined input and output tokens
+- **Unacknowledged Alerts**: Number of alerts requiring attention
+
+#### Daily Cost Chart
+Visual representation of daily API costs throughout the selected period. Hover over bars to see exact values.
+
+#### Model Breakdown
+Table showing usage broken down by AI model:
+- Model name and API identifier
+- Request count per model
+- Token usage (input/output/total)
+- Cost per model
+
+#### Top Users
+Ranked list of users by cost with:
+- Request count
+- Token usage
+- Total cost
+
+### Navigation & Filtering
+
+#### Month Navigation
+Use the **<** and **>** buttons to navigate between months. The current month is shown by default.
+
+#### Custom Date Range
+1. Click **"Custom Range"** to enable date range filtering
+2. Enter start and end dates using the date picker
+3. Click **"Apply"** to filter data
+4. Click **"Custom Range"** again to return to monthly view
+
+### CSV Export
+
+Export usage data for analysis or reporting:
+
+1. Navigate to the desired month or set a custom date range
+2. Click the **"Export CSV"** button
+3. The downloaded file contains:
+   - User email
+   - Model name
+   - Request count
+   - Input/output/total tokens
+   - Cost in cents
+
+The filename includes the date range: `usage-2024-11.csv` or `usage-2024-11-01-to-2024-11-15.csv`.
+
+### Alert Management
+
+#### Viewing Alerts
+Navigate to `/admin/usage/alerts` to see all triggered alerts. Each alert shows:
+- Threshold that was exceeded
+- User (if per-user alert) or "System-wide"
+- Period covered
+- Amount at time of alert
+- Whether email was sent
+
+#### Acknowledging Alerts
+Click the "Acknowledge" button on any alert to mark it as reviewed. Acknowledged alerts remain in history but won't appear in the unacknowledged count.
+
+#### Configuring Thresholds
+Navigate to `/admin/alert-thresholds` to manage alert thresholds:
+- **Name**: Identifier for the threshold
+- **Scope**: `per_user` (checks each user) or `total` (checks sum of all users)
+- **Period**: `daily` or `monthly`
+- **Threshold**: Amount in cents that triggers the alert
+- **Notifications**: Enable/disable email and dashboard notifications
+
+### Managing AI Models & Pricing
+
+#### AI Providers (`/admin/ai-providers`)
+Manage AI service providers (OpenAI, Anthropic, etc.).
+
+#### AI Models (`/admin/ai-models`)
+Configure available models:
+- Associate with provider
+- Set API name (sent in requests)
+- Mark as active/inactive
+- Set default model
+
+#### Model Prices (`/admin/ai-model-prices`)
+Track pricing history:
+- Input price per million tokens
+- Output price per million tokens
+- Effective date (allows historical price tracking)
+
+---
+
+## Antipatterns and Lessons Learned
+
+This section documents architectural issues discovered during implementation and the patterns we adopted to prevent similar problems in the future.
+
+### The Silent Failure Problem (November 2024)
+
+**What happened**: A regression occurred where `user_id` was not being passed through the AI call chain, resulting in usage data being recorded without user attribution. This went undetected because:
+
+1. Tests used mocks that ignored the options parameter (`_opts`)
+2. No validation existed at any layer to enforce required parameters
+3. The database schema allowed `user_id` to be null
+4. Each layer silently passed nil values without warning
+
+**Root causes identified**:
+
+#### Antipattern 1: Unstructured Keyword Options
+
+```elixir
+# BAD: Accepts any keyword list with no structure or documentation
+@type options :: keyword()
+
+def chat!(messages, opts \\ []) do
+  user_id = opts[:user_id]  # Could be nil, no warning
+  # ...
+end
+```
+
+**Fix**: Use validated structs with explicit requirements:
+
+```elixir
+# GOOD: Validated options struct (see DiagramForge.AI.Options)
+defmodule Options do
+  @enforce_keys [:operation]
+  defstruct [:user_id, :operation, :ai_client, track_usage: true]
+
+  def new!(opts) do
+    # Validates user_id is present when track_usage is true
+    # Raises ArgumentError on invalid configuration
+  end
+end
+```
+
+#### Antipattern 2: Pass-Through Functions Without Validation
+
+```elixir
+# BAD: Pure pass-through with no validation
+def generate_diagram_from_prompt(prompt, opts) do
+  DiagramGenerator.generate_from_prompt(prompt, opts)  # Just passes opts blindly
+end
+```
+
+**Fix**: Validate at entry points, fail fast:
+
+```elixir
+# GOOD: Validate early, fail fast
+def generate_diagram_from_prompt(prompt, opts) do
+  ai_opts = build_ai_opts!(opts, "diagram_generation")  # Raises on invalid opts
+  DiagramGenerator.generate_from_prompt(prompt, ai_opts)
+end
+```
+
+#### Antipattern 3: Tests That Ignore Parameters
+
+```elixir
+# BAD: Mock ignores opts, test passes even if user_id is nil
+expect(MockAIClient, :chat!, fn _messages, _opts ->
+  Jason.encode!(response)
+end)
+```
+
+**Fix**: Verify critical parameters in mocks:
+
+```elixir
+# GOOD: Mock asserts that required options are passed
+expect(MockAIClient, :chat!, fn _messages, opts ->
+  assert opts[:user_id] == user.id, "user_id must be passed for usage tracking"
+  assert opts[:operation] == "diagram_generation"
+  Jason.encode!(response)
+end)
+```
+
+#### Antipattern 4: No Defense in Depth
+
+Each layer trusted the previous layer to pass correct data. When one layer failed, the error propagated silently through the entire chain.
+
+**Fix**: Add validation at multiple levels:
+
+1. **Entry point validation** (DiagramForge.AI.Options) - Raises on invalid configuration
+2. **Tracker validation** (DiagramForge.Usage.Tracker) - Logs warning if user_id missing
+3. **Test validation** - Mocks verify required parameters are passed
+
+### Design Principles Adopted
+
+Based on these lessons, we adopted these principles for the codebase:
+
+1. **Explicit over implicit**: Required parameters should be validated, not assumed
+2. **Fail fast**: Invalid configurations should raise immediately, not silently fail later
+3. **Defense in depth**: Multiple layers should validate critical data
+4. **Tests verify contracts**: Mocks should assert that callers pass required parameters
+5. **Structured data over keyword lists**: Use structs with validation for complex options
+
+### Reference Implementation
+
+The `DiagramForge.AI.Options` module is the reference implementation for validated options:
+
+```elixir
+# Creating options for authenticated users (usage tracking enabled)
+opts = [user_id: user.id, operation: "diagram_generation"]
+validated = Options.new!(opts)  # Raises if user_id missing
+
+# Creating options for unauthenticated users (usage tracking disabled)
+opts = [user_id: nil, operation: "diagram_generation", track_usage: false]
+validated = Options.new!(opts)  # OK because track_usage is false
+```
 
 ---
 

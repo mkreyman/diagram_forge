@@ -121,28 +121,88 @@ defmodule DiagramForgeWeb.Admin.UsageDashboardLive do
       <Backpex.HTML.Layout.flash_messages flash={@flash} />
 
       <div class="space-y-8">
-        <div class="flex items-center justify-between">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 class="text-2xl font-bold text-base-content">API Usage</h1>
             <p class="mt-1 text-sm text-base-content/70">
-              {@month_name} {@year} - Token usage and cost tracking
+              <%= if @custom_range do %>
+                {Calendar.strftime(@start_date, "%b %d, %Y")} - {Calendar.strftime(
+                  @end_date,
+                  "%b %d, %Y"
+                )}
+              <% else %>
+                {@month_name} {@year} - Token usage and cost tracking
+              <% end %>
             </p>
           </div>
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-4">
             <.link
-              navigate={~p"/admin/usage/dashboard?#{%{year: @prev_year, month: @prev_month}}"}
+              href={export_url(@year, @month, @custom_range, @start_date, @end_date)}
+              class="btn btn-outline btn-sm"
+            >
+              <Backpex.HTML.CoreComponents.icon name="hero-arrow-down-tray" class="size-4" />
+              Export CSV
+            </.link>
+            <!-- Monthly Navigation -->
+            <div :if={!@custom_range} class="flex items-center gap-2">
+              <.link
+                navigate={~p"/admin/usage/dashboard?#{%{year: @prev_year, month: @prev_month}}"}
+                class="btn btn-ghost btn-sm"
+              >
+                <Backpex.HTML.CoreComponents.icon name="hero-chevron-left" class="size-4" />
+              </.link>
+              <span class="text-sm font-medium">{@month_name} {@year}</span>
+              <.link
+                navigate={~p"/admin/usage/dashboard?#{%{year: @next_year, month: @next_month}}"}
+                class={["btn btn-ghost btn-sm", @is_current_month && "btn-disabled"]}
+              >
+                <Backpex.HTML.CoreComponents.icon name="hero-chevron-right" class="size-4" />
+              </.link>
+            </div>
+            <!-- Toggle Custom Range -->
+            <button
+              type="button"
+              phx-click="toggle_custom_range"
+              class={["btn btn-sm", (@custom_range && "btn-primary") || "btn-ghost"]}
+            >
+              <Backpex.HTML.CoreComponents.icon name="hero-calendar-days" class="size-4" />
+              Custom Range
+            </button>
+          </div>
+        </div>
+        <!-- Custom Date Range Picker -->
+        <div :if={@custom_range} class="bg-base-100 rounded-lg border border-base-300 p-4 shadow-sm">
+          <form phx-submit="apply_date_range" class="flex flex-wrap items-end gap-4">
+            <div>
+              <label class="label">
+                <span class="label-text">Start Date</span>
+              </label>
+              <input
+                type="date"
+                name="start_date"
+                value={Date.to_iso8601(@start_date)}
+                class="input input-bordered input-sm"
+              />
+            </div>
+            <div>
+              <label class="label">
+                <span class="label-text">End Date</span>
+              </label>
+              <input
+                type="date"
+                name="end_date"
+                value={Date.to_iso8601(@end_date)}
+                class="input input-bordered input-sm"
+              />
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+            <.link
+              navigate={~p"/admin/usage/dashboard"}
               class="btn btn-ghost btn-sm"
             >
-              <Backpex.HTML.CoreComponents.icon name="hero-chevron-left" class="size-4" />
+              Reset to Monthly
             </.link>
-            <span class="text-sm font-medium">{@month_name} {@year}</span>
-            <.link
-              navigate={~p"/admin/usage/dashboard?#{%{year: @next_year, month: @next_month}}"}
-              class={["btn btn-ghost btn-sm", @is_current_month && "btn-disabled"]}
-            >
-              <Backpex.HTML.CoreComponents.icon name="hero-chevron-right" class="size-4" />
-            </.link>
-          </div>
+          </form>
         </div>
         <!-- Alert Banner -->
         <div
@@ -204,6 +264,42 @@ defmodule DiagramForgeWeb.Admin.UsageDashboardLive do
                 </span>
               </div>
             </div>
+          </div>
+        </div>
+        <!-- Model Breakdown -->
+        <div class="bg-base-100 rounded-lg border border-base-300 p-6 shadow-sm">
+          <h2 class="text-lg font-semibold text-base-content mb-4">Usage by Model</h2>
+          <div :if={@model_breakdown == []} class="text-center py-8 text-base-content/50">
+            No usage data for this period
+          </div>
+          <div :if={@model_breakdown != []} class="overflow-x-auto">
+            <table class="table table-sm" id="model-breakdown-table">
+              <thead>
+                <tr>
+                  <th>Model</th>
+                  <th class="text-right">Requests</th>
+                  <th class="text-right">Input Tokens</th>
+                  <th class="text-right">Output Tokens</th>
+                  <th class="text-right">Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={model <- @model_breakdown}>
+                  <td>
+                    <div class="flex flex-col">
+                      <span class="font-medium">{model.model_name}</span>
+                      <span class="text-xs text-base-content/50">{model.api_name}</span>
+                    </div>
+                  </td>
+                  <td class="text-right font-mono">{format_number(model.request_count || 0)}</td>
+                  <td class="text-right font-mono">{format_tokens(model.input_tokens || 0)}</td>
+                  <td class="text-right font-mono">{format_tokens(model.output_tokens || 0)}</td>
+                  <td class="text-right font-mono font-semibold">
+                    ${Usage.format_cents(model.cost_cents || 0)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
         <!-- Top Users Table -->
@@ -314,8 +410,22 @@ defmodule DiagramForgeWeb.Admin.UsageDashboardLive do
   @impl true
   def handle_params(params, _uri, socket) do
     today = Date.utc_today()
-    year = parse_int(params["year"], today.year)
-    month = parse_int(params["month"], today.month)
+
+    # Check if custom range is specified
+    custom_range = params["start_date"] != nil && params["end_date"] != nil
+
+    {start_date, end_date, year, month} =
+      if custom_range do
+        start_date = Date.from_iso8601!(params["start_date"])
+        end_date = Date.from_iso8601!(params["end_date"])
+        {start_date, end_date, start_date.year, start_date.month}
+      else
+        year = parse_int(params["year"], today.year)
+        month = parse_int(params["month"], today.month)
+        start_date = Date.new!(year, month, 1)
+        end_date = Date.end_of_month(start_date)
+        {start_date, end_date, year, month}
+      end
 
     {prev_year, prev_month} = prev_month(year, month)
     {next_year, next_month} = next_month(year, month)
@@ -332,15 +442,42 @@ defmodule DiagramForgeWeb.Admin.UsageDashboardLive do
       |> assign(:next_year, next_year)
       |> assign(:next_month, next_month)
       |> assign(:is_current_month, year == today.year && month == today.month)
-      |> load_data(year, month)
+      |> assign(:custom_range, custom_range)
+      |> assign(:start_date, start_date)
+      |> assign(:end_date, end_date)
+      |> load_data_for_range(start_date, end_date)
 
     {:noreply, socket}
   end
 
-  defp load_data(socket, year, month) do
-    summary = Usage.get_monthly_summary(year, month)
-    daily_costs = Usage.get_daily_costs(year, month)
-    top_users = Usage.get_top_users_by_cost(year, month)
+  @impl true
+  def handle_event("toggle_custom_range", _params, socket) do
+    if socket.assigns.custom_range do
+      # Switch back to monthly view
+      {:noreply, push_navigate(socket, to: ~p"/admin/usage/dashboard")}
+    else
+      # Enable custom range with current month as default
+      {:noreply, assign(socket, :custom_range, true)}
+    end
+  end
+
+  @impl true
+  def handle_event(
+        "apply_date_range",
+        %{"start_date" => start_str, "end_date" => end_str},
+        socket
+      ) do
+    {:noreply,
+     push_navigate(socket,
+       to: ~p"/admin/usage/dashboard?#{%{start_date: start_str, end_date: end_str}}"
+     )}
+  end
+
+  defp load_data_for_range(socket, start_date, end_date) do
+    summary = Usage.get_summary_for_range(start_date, end_date)
+    daily_costs = Usage.get_daily_costs_for_range(start_date, end_date)
+    top_users = Usage.get_top_users_for_range(start_date, end_date)
+    model_breakdown = Usage.get_usage_by_model_for_range(start_date, end_date)
     unacknowledged_count = Usage.count_unacknowledged_alerts()
 
     max_daily_cost =
@@ -352,8 +489,17 @@ defmodule DiagramForgeWeb.Admin.UsageDashboardLive do
     |> assign(:summary, summary)
     |> assign(:daily_costs, daily_costs)
     |> assign(:top_users, top_users)
+    |> assign(:model_breakdown, model_breakdown)
     |> assign(:max_daily_cost, max_daily_cost)
     |> assign(:unacknowledged_count, unacknowledged_count)
+  end
+
+  defp export_url(_year, _month, true, start_date, end_date) do
+    ~p"/admin/usage/export.csv?#{%{start_date: Date.to_iso8601(start_date), end_date: Date.to_iso8601(end_date)}}"
+  end
+
+  defp export_url(year, month, false = _custom_range, _start_date, _end_date) do
+    ~p"/admin/usage/export.csv?#{%{year: year, month: month}}"
   end
 
   defp parse_int(nil, default), do: default

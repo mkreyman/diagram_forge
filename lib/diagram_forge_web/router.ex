@@ -53,6 +53,9 @@ defmodule DiagramForgeWeb.Router do
     # Redirect /admin to /admin/dashboard
     get "/", DiagramForgeWeb.AdminRedirectController, :index
 
+    # CSV export (regular controller, not LiveView)
+    get "/usage/export.csv", DiagramForgeWeb.Admin.UsageExportController, :export_csv
+
     # Admin live session - includes dashboard and Backpex resources
     live_session :admin,
       root_layout: {DiagramForgeWeb.Admin.Layouts, :root},

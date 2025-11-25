@@ -214,7 +214,13 @@ defmodule DiagramForge.Usage do
   """
   def get_monthly_summary(year, month) do
     {start_date, end_date} = month_date_range(year, month)
+    get_summary_for_range(start_date, end_date)
+  end
 
+  @doc """
+  Gets usage summary for a custom date range.
+  """
+  def get_summary_for_range(start_date, end_date) do
     result =
       DailyAggregate
       |> where([d], d.date >= ^start_date and d.date <= ^end_date)
@@ -242,7 +248,13 @@ defmodule DiagramForge.Usage do
   """
   def get_top_users_by_cost(year, month, limit \\ 10) do
     {start_date, end_date} = month_date_range(year, month)
+    get_top_users_for_range(start_date, end_date, limit)
+  end
 
+  @doc """
+  Gets top users by cost for a custom date range.
+  """
+  def get_top_users_for_range(start_date, end_date, limit \\ 10) do
     DailyAggregate
     |> where([d], d.date >= ^start_date and d.date <= ^end_date)
     |> where([d], not is_nil(d.user_id))
@@ -263,7 +275,13 @@ defmodule DiagramForge.Usage do
   """
   def get_daily_costs(year, month) do
     {start_date, end_date} = month_date_range(year, month)
+    get_daily_costs_for_range(start_date, end_date)
+  end
 
+  @doc """
+  Gets daily cost breakdown for a custom date range.
+  """
+  def get_daily_costs_for_range(start_date, end_date) do
     DailyAggregate
     |> where([d], d.date >= ^start_date and d.date <= ^end_date)
     |> group_by([d], d.date)
@@ -274,6 +292,110 @@ defmodule DiagramForge.Usage do
     })
     |> order_by([d], asc: d.date)
     |> Repo.all()
+  end
+
+  @doc """
+  Gets usage breakdown by model for a given month.
+  Returns list of maps with model info and usage stats.
+  """
+  def get_usage_by_model(year, month) do
+    {start_date, end_date} = month_date_range(year, month)
+    get_usage_by_model_for_range(start_date, end_date)
+  end
+
+  @doc """
+  Gets usage breakdown by model for a custom date range.
+  """
+  def get_usage_by_model_for_range(start_date, end_date) do
+    DailyAggregate
+    |> where([d], d.date >= ^start_date and d.date <= ^end_date)
+    |> where([d], not is_nil(d.model_id))
+    |> join(:inner, [d], m in AIModel, on: d.model_id == m.id)
+    |> group_by([d, m], [d.model_id, m.name, m.api_name])
+    |> select([d, m], %{
+      model_id: d.model_id,
+      model_name: m.name,
+      api_name: m.api_name,
+      cost_cents: sum(d.cost_cents),
+      request_count: sum(d.request_count),
+      input_tokens: sum(d.input_tokens),
+      output_tokens: sum(d.output_tokens),
+      total_tokens: sum(d.total_tokens)
+    })
+    |> order_by([d], desc: sum(d.cost_cents))
+    |> Repo.all()
+  end
+
+  # ============================================================================
+  # CSV Export
+  # ============================================================================
+
+  @doc """
+  Exports usage data as CSV for a given month.
+  Returns a CSV string with headers.
+  """
+  def export_usage_csv(year, month) do
+    {start_date, end_date} = month_date_range(year, month)
+    export_usage_csv_for_range(start_date, end_date)
+  end
+
+  @doc """
+  Exports usage data as CSV for a custom date range.
+  Returns a CSV string with headers.
+  """
+  def export_usage_csv_for_range(start_date, end_date) do
+    rows =
+      TokenUsage
+      |> where([t], fragment("DATE(?)", t.inserted_at) >= ^start_date)
+      |> where([t], fragment("DATE(?)", t.inserted_at) <= ^end_date)
+      |> join(:left, [t], m in AIModel, on: t.model_id == m.id)
+      |> join(:left, [t, m], u in DiagramForge.Accounts.User, on: t.user_id == u.id)
+      |> select([t, m, u], %{
+        timestamp: t.inserted_at,
+        user_email: u.email,
+        model: m.api_name,
+        operation: t.operation,
+        input_tokens: t.input_tokens,
+        output_tokens: t.output_tokens,
+        total_tokens: t.total_tokens,
+        cost_cents: t.cost_cents
+      })
+      |> order_by([t], asc: t.inserted_at)
+      |> Repo.all()
+
+    headers = [
+      "Timestamp",
+      "User Email",
+      "Model",
+      "Operation",
+      "Input Tokens",
+      "Output Tokens",
+      "Total Tokens",
+      "Cost ($)"
+    ]
+
+    csv_rows =
+      Enum.map(rows, fn row ->
+        [
+          format_datetime(row.timestamp),
+          row.user_email || "anonymous",
+          row.model || "unknown",
+          row.operation || "unknown",
+          to_string(row.input_tokens || 0),
+          to_string(row.output_tokens || 0),
+          to_string(row.total_tokens || 0),
+          format_cents(row.cost_cents || 0)
+        ]
+      end)
+
+    [headers | csv_rows]
+    |> Enum.map_join("\n", &Enum.join(&1, ","))
+  end
+
+  defp format_datetime(nil), do: ""
+
+  defp format_datetime(datetime) do
+    Calendar.strftime(datetime, "%Y-%m-%d %H:%M:%S")
   end
 
   # ============================================================================
