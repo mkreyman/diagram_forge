@@ -428,25 +428,32 @@ defmodule DiagramForge.DiagramsTest do
       assert hd(diagrams).id == elixir_diagram.id
     end
 
-    test "filters diagrams by multiple tags with AND logic" do
+    test "filters diagrams by multiple tags with OR logic" do
       user = fixture(:user)
       both_tags = fixture(:diagram, tags: ["elixir", "phoenix"])
       only_elixir = fixture(:diagram, tags: ["elixir"])
       only_phoenix = fixture(:diagram, tags: ["phoenix"])
+      no_match = fixture(:diagram, tags: ["rust"])
       Diagrams.assign_diagram_to_user(both_tags.id, user.id)
       Diagrams.assign_diagram_to_user(only_elixir.id, user.id)
       Diagrams.assign_diagram_to_user(only_phoenix.id, user.id)
+      Diagrams.assign_diagram_to_user(no_match.id, user.id)
 
       diagrams = Diagrams.list_diagrams_by_tags(user.id, ["elixir", "phoenix"], :all)
 
-      assert length(diagrams) == 1
-      assert hd(diagrams).id == both_tags.id
+      # OR logic: should return all 3 diagrams that have elixir OR phoenix
+      assert length(diagrams) == 3
+      diagram_ids = Enum.map(diagrams, & &1.id)
+      assert both_tags.id in diagram_ids
+      assert only_elixir.id in diagram_ids
+      assert only_phoenix.id in diagram_ids
+      refute no_match.id in diagram_ids
     end
 
-    test "returns empty list when no diagrams match all tags" do
+    test "returns empty list when no diagrams match any tags" do
       user = fixture(:user)
-      d1 = fixture(:diagram, tags: ["elixir"])
-      d2 = fixture(:diagram, tags: ["phoenix"])
+      d1 = fixture(:diagram, tags: ["rust"])
+      d2 = fixture(:diagram, tags: ["golang"])
       Diagrams.assign_diagram_to_user(d1.id, user.id)
       Diagrams.assign_diagram_to_user(d2.id, user.id)
 
@@ -475,18 +482,27 @@ defmodule DiagramForge.DiagramsTest do
   end
 
   describe "list_diagrams_by_saved_filter/2" do
-    test "returns diagrams matching filter's tag_filter" do
+    test "returns diagrams matching any of filter's tags (OR logic)" do
       user = fixture(:user)
       filter = fixture(:saved_filter, user: user, tag_filter: ["elixir", "phoenix"])
-      matching = fixture(:diagram, tags: ["elixir", "phoenix", "web"])
-      non_matching = fixture(:diagram, tags: ["elixir"])
-      Diagrams.assign_diagram_to_user(matching.id, user.id)
-      Diagrams.assign_diagram_to_user(non_matching.id, user.id)
+      # Has both tags
+      has_both = fixture(:diagram, tags: ["elixir", "phoenix", "web"])
+      # Has only one matching tag - should still match with OR logic
+      has_one = fixture(:diagram, tags: ["elixir"])
+      # Has no matching tags
+      has_none = fixture(:diagram, tags: ["rust", "golang"])
+      Diagrams.assign_diagram_to_user(has_both.id, user.id)
+      Diagrams.assign_diagram_to_user(has_one.id, user.id)
+      Diagrams.assign_diagram_to_user(has_none.id, user.id)
 
       diagrams = Diagrams.list_diagrams_by_saved_filter(user.id, filter)
 
-      assert length(diagrams) == 1
-      assert hd(diagrams).id == matching.id
+      # Should match both diagrams that have at least one of the filter tags
+      assert length(diagrams) == 2
+      diagram_ids = Enum.map(diagrams, & &1.id)
+      assert has_both.id in diagram_ids
+      assert has_one.id in diagram_ids
+      refute has_none.id in diagram_ids
     end
 
     test "returns all diagrams when filter has empty tag_filter" do

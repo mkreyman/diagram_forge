@@ -254,12 +254,14 @@ defmodule DiagramForge.Diagrams do
       from d in Diagram,
         where: d.visibility == :public
 
-    # Add tag filter (must have ALL tags)
+    # Add tag filter (OR logic - diagram must have at least one of the tags)
     query =
-      Enum.reduce(tags, base_query, fn tag, acc ->
-        from d in acc,
-          where: ^tag in d.tags
-      end)
+      if tags == [] do
+        base_query
+      else
+        from d in base_query,
+          where: fragment("? && ?", d.tags, ^tags)
+      end
 
     query
     |> order_by([d], desc: d.inserted_at)
@@ -718,12 +720,14 @@ defmodule DiagramForge.Diagrams do
         :all -> base_query
       end
 
-    # Add tag filter (must have ALL tags)
+    # Add tag filter (OR logic - diagram must have at least one of the tags)
     query =
-      Enum.reduce(tags, query, fn tag, acc ->
-        from [d, ud] in acc,
-          where: ^tag in d.tags
-      end)
+      if tags == [] do
+        query
+      else
+        from [d, ud] in query,
+          where: fragment("? && ?", d.tags, ^tags)
+      end
 
     # Execute with ordering
     query
@@ -733,16 +737,37 @@ defmodule DiagramForge.Diagrams do
 
   @doc """
   Lists diagrams matching a saved filter.
+
+  Includes:
+  - User's owned diagrams matching the filter tags
+  - User's bookmarked diagrams matching the filter tags
+  - Public diagrams matching the filter tags (even if not bookmarked)
+
+  Results are deduplicated and sorted by insertion date (newest first).
   """
   def list_diagrams_by_saved_filter(user_id, %SavedFilter{} = filter) do
-    list_diagrams_by_tags(user_id, filter.tag_filter, :all)
+    # Get user's owned/bookmarked diagrams
+    user_diagrams = list_diagrams_by_tags(user_id, filter.tag_filter, :all)
+
+    # Get public diagrams matching the filter
+    public_diagrams = list_public_diagrams(filter.tag_filter)
+
+    # Combine and deduplicate (user might own a public diagram)
+    user_diagram_ids = MapSet.new(user_diagrams, & &1.id)
+
+    additional_public =
+      Enum.reject(public_diagrams, fn d -> MapSet.member?(user_diagram_ids, d.id) end)
+
+    # Combine and sort by inserted_at desc
+    (user_diagrams ++ additional_public)
+    |> Enum.sort_by(& &1.inserted_at, {:desc, NaiveDateTime})
   end
 
   @doc """
   Gets counts for a saved filter (how many diagrams match).
   """
   def get_saved_filter_count(user_id, %SavedFilter{} = filter) do
-    diagrams = list_diagrams_by_tags(user_id, filter.tag_filter, :all)
+    diagrams = list_diagrams_by_saved_filter(user_id, filter)
     length(diagrams)
   end
 

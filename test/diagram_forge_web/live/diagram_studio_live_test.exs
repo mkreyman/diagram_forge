@@ -424,7 +424,7 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
       assert html =~ diagram2.title
     end
 
-    test "filters diagrams by multiple tags", %{conn: conn} do
+    test "filters diagrams by multiple tags (OR logic)", %{conn: conn} do
       user = fixture(:user)
       both_tags = fixture(:diagram, tags: ["elixir", "phoenix"])
       elixir_only = fixture(:diagram, tags: ["elixir"])
@@ -448,9 +448,10 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
 
       html = render(view)
 
-      # Only diagram with both tags should be visible
+      # OR logic: diagrams with elixir OR phoenix should be visible
       assert html =~ both_tags.title
-      refute html =~ elixir_only.title
+      assert html =~ elixir_only.title
+      # Diagram with neither tag should not be visible
       refute html =~ rust_only.title
     end
   end
@@ -549,34 +550,6 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
       # Verify filter is gone from database
       filters = Diagrams.list_saved_filters(user.id)
       assert filters == []
-    end
-
-    test "unpinning a filter deletes it", %{conn: conn} do
-      user = fixture(:user)
-
-      # Create a pinned filter
-      {:ok, pinned_filter} =
-        Diagrams.create_saved_filter(
-          %{name: "Pinned Filter", tag_filter: ["elixir"], is_pinned: true},
-          user.id
-        )
-
-      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
-      {:ok, view, html} = live(conn, ~p"/")
-
-      # Filter should be visible in pinned section
-      assert html =~ "Pinned Filter"
-
-      # Toggle pin (unpin it) - this should delete the filter
-      view
-      |> element("button[phx-click='toggle_filter_pin'][phx-value-id='#{pinned_filter.id}']")
-      |> render_click()
-
-      # Verify filter was deleted
-      assert Diagrams.get_saved_filter(pinned_filter.id) == nil
-
-      # Filter should no longer be visible
-      refute render(view) =~ "Pinned Filter"
     end
   end
 

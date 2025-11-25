@@ -292,25 +292,6 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
     end
   end
 
-  @impl true
-  def handle_event("toggle_filter_pin", %{"id" => id}, socket) do
-    # Unpinning a filter deletes it - we only show pinned filters
-    filter = Diagrams.get_saved_filter!(id)
-    user_id = socket.assigns.current_user.id
-
-    case Diagrams.delete_saved_filter(filter, user_id) do
-      {:ok, _} ->
-        socket =
-          socket
-          |> load_filters()
-
-        {:noreply, socket}
-
-      {:error, :unauthorized} ->
-        {:noreply, put_flash(socket, :error, "Unauthorized")}
-    end
-  end
-
   # Tag management on diagrams
 
   @impl true
@@ -1483,15 +1464,6 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                           title="Edit"
                         >
                           ✏️
-                        </button>
-                        <button
-                          type="button"
-                          phx-click="toggle_filter_pin"
-                          phx-value-id={filter.id}
-                          class="p-1 hover:bg-slate-700 rounded text-xs"
-                          title="Unpin"
-                        >
-                          📌
                         </button>
                         <button
                           type="button"
