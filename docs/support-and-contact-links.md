@@ -8,6 +8,58 @@ Add links for users to support the project financially, get in touch with the ma
 
 Developers only (site uses GitHub OAuth exclusively - no other auth methods).
 
+---
+
+## Recommended Setup (Minimal + Developer-Native)
+
+### Primary: GitHub Sponsors
+
+Most natural for developers - no friction, instantly trusted.
+
+Benefits:
+- Recurring sponsors
+- Lightweight one-time donations
+- Badge for repo
+- Automatic GitHub integration via API (optional later)
+
+### Secondary: Stripe Payment Link
+
+For devs who prefer tipping without GitHub account connection or want to pay with card without signing in.
+
+**Rationale:** Most devs won't object to GitHub-only OAuth, but accepting donations through GitHub alone limits passive one-off tips. Stripe provides an easy fallback.
+
+Both links together = perfect setup.
+
+---
+
+## Copy Options (Clean, Non-Pushy, Dev-Focused)
+
+### Option A - Clean + Professional
+
+> **Support DiagramForge**
+> If this project saves you time or helps with your work, consider supporting development:
+> → **GitHub Sponsors**
+> → **Stripe one-time donation**
+
+### Option B - Casual + Developer Tone
+
+> **Enjoying DiagramForge?**
+> If it's making your workflow easier, you can support the project through:
+> • **GitHub Sponsors**
+> • **Stripe (one-time tip)**
+
+### Option C - Short + Minimal
+
+> Support this project → GitHub | Stripe
+
+### Option D - Open-source Spirit
+
+> DiagramForge is built and maintained for the developer community.
+> If you'd like to keep it improving, feel free to support the project via
+> **GitHub Sponsors** or a **Stripe tip**.
+
+---
+
 ## UI Placement
 
 ### Header Area (Top)
