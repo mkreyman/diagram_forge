@@ -83,11 +83,11 @@ Located in the top navbar, alongside or near the user auth section:
 At the very bottom of the page:
 
 1. **Submit an Issue** - Link to GitHub Issues
-   - URL: `https://github.com/[username]/diagram_forge/issues`
+   - URL: `https://github.com/mkreyman/diagram_forge/issues`
    - Text: "Report an issue" or "Submit feedback"
 
 2. **Contribute** - Link to repo for contributions
-   - URL: `https://github.com/[username]/diagram_forge`
+   - URL: `https://github.com/mkreyman/diagram_forge`
    - Text: "Contribute" or "View source"
 
 ## Copy Options
@@ -157,7 +157,7 @@ At the very bottom of the page:
   <div class="container mx-auto px-4 text-center text-sm text-slate-500">
     <div class="flex items-center justify-center gap-4">
       <a
-        href="https://github.com/[username]/diagram_forge/issues"
+        href="https://github.com/mkreyman/diagram_forge/issues"
         target="_blank"
         class="hover:text-slate-300 transition"
       >
@@ -165,7 +165,7 @@ At the very bottom of the page:
       </a>
       <span>·</span>
       <a
-        href="https://github.com/[username]/diagram_forge"
+        href="https://github.com/mkreyman/diagram_forge"
         target="_blank"
         class="hover:text-slate-300 transition"
       >
@@ -181,11 +181,12 @@ At the very bottom of the page:
 - [x] GitHub account (have it)
 - [x] Stripe account (have it)
 - [ ] Stripe Payment Link created (one-time setup)
-- [ ] GitHub Sponsors enabled for repo/profile
+- [x] GitHub Sponsors enabled for profile
+- [x] `.github/FUNDING.yml` created for repo sponsor button
 
 ## Configuration
 
-Consider making these URLs configurable via environment variables or runtime config:
+Make these URLs configurable via environment variables or runtime config:
 
 ```elixir
 # config/runtime.exs
@@ -200,38 +201,34 @@ config :diagram_forge,
 
 ## Questions / Clarifications
 
-1. **LinkedIn URL format** - You mentioned `linkedin.com/p/mkreyman` but LinkedIn profile URLs are typically `linkedin.com/in/username`. Which is correct?
-
-2. **Header placement** - Should the support/contact links be:
+1. **Header placement** - Should the support/contact links be:
    - Always visible to everyone (including non-logged-in users)?
    - Only visible to logged-in users?
    - In the main navbar or in a separate smaller bar above/below it?
 
-3. **Support link priority** - Which should be more prominent:
+2. **Support link priority** - Which should be more prominent:
    - Stripe Payment Link (one-time tips)?
    - GitHub Sponsors (recurring)?
    - Both equally?
 
-4. **Icons vs text** - For the header links, prefer:
+3. **Icons vs text** - For the header links, prefer:
    - Icons only with tooltips (cleaner)?
    - Icons + short text labels (clearer)?
    - Text only?
 
-5. **GitHub repo visibility** - Is the repo public? Need the exact repo URL for the footer links.
+4. **Stripe Payment Link** - Do you already have this created, or should I include setup instructions?
 
-6. **Stripe Payment Link** - Do you already have this created, or should I include setup instructions?
-
-7. **Footer content** - Should the footer also include:
+5. **Footer content** - Should the footer also include:
    - Copyright notice?
    - "Built with Phoenix/Elixir" badge?
    - Version number?
 
-8. **"Get in touch" purpose** - Is this for:
+6. **"Get in touch" purpose** - Is this for:
    - General networking/contact?
    - Business inquiries?
    - Should there be an email option too, or LinkedIn only?
 
-9. **Mobile layout** - On small screens, should these links:
+7. **Mobile layout** - On small screens, should these links:
    - Collapse into a menu?
    - Remain visible but icon-only?
    - Move to a different location?
