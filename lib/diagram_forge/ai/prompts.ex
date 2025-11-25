@@ -1,6 +1,9 @@
 defmodule DiagramForge.AI.Prompts do
   @moduledoc """
   Prompt templates for AI-powered concept extraction and diagram generation.
+
+  These are default prompts. Database-stored prompts (via admin) take precedence
+  when available.
   """
 
   @concept_system_prompt """
@@ -31,10 +34,37 @@ defmodule DiagramForge.AI.Prompts do
   - Only output strictly valid JSON with the requested fields.
   """
 
+  # Default functions - return module attributes directly (used by DiagramForge.AI fallback)
+
+  @doc """
+  Returns the default system prompt for concept extraction.
+  Used as fallback when no DB customization exists.
+  """
+  def default_concept_system_prompt, do: @concept_system_prompt
+
+  @doc """
+  Returns the default system prompt for diagram generation.
+  Used as fallback when no DB customization exists.
+  """
+  def default_diagram_system_prompt, do: @diagram_system_prompt
+
+  # Public API - checks DB first, falls back to defaults
+
   @doc """
   Returns the system prompt for concept extraction.
+  Checks database for customized version first, falls back to default.
   """
-  def concept_system_prompt, do: @concept_system_prompt
+  def concept_system_prompt do
+    DiagramForge.AI.get_prompt("concept_system")
+  end
+
+  @doc """
+  Returns the system prompt for diagram generation.
+  Checks database for customized version first, falls back to default.
+  """
+  def diagram_system_prompt do
+    DiagramForge.AI.get_prompt("diagram_system")
+  end
 
   @doc """
   Returns the user prompt for concept extraction from a text chunk.
@@ -86,11 +116,6 @@ defmodule DiagramForge.AI.Prompts do
     Do not mention the JSON format in your response. Just output JSON.
     """
   end
-
-  @doc """
-  Returns the system prompt for diagram generation.
-  """
-  def diagram_system_prompt, do: @diagram_system_prompt
 
   @doc """
   Returns the user prompt for generating a diagram from a concept with context.

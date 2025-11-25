@@ -32,6 +32,9 @@ defmodule DiagramForgeWeb.Admin.DashboardLive do
           <.link navigate={~p"/admin/documents"} class="btn btn-ghost btn-sm">
             Documents
           </.link>
+          <.link navigate={~p"/admin/prompts"} class="btn btn-ghost btn-sm">
+            Prompts
+          </.link>
         </div>
 
         <Backpex.HTML.Layout.topbar_dropdown>
@@ -71,6 +74,10 @@ defmodule DiagramForgeWeb.Admin.DashboardLive do
         </Backpex.HTML.Layout.sidebar_item>
         <Backpex.HTML.Layout.sidebar_item current_url={@current_url} navigate={~p"/admin/documents"}>
           <Backpex.HTML.CoreComponents.icon name="hero-document-text" class="size-5" /> Documents
+        </Backpex.HTML.Layout.sidebar_item>
+        <Backpex.HTML.Layout.sidebar_item current_url={@current_url} navigate={~p"/admin/prompts"}>
+          <Backpex.HTML.CoreComponents.icon name="hero-chat-bubble-bottom-center-text" class="size-5" />
+          Prompts
         </Backpex.HTML.Layout.sidebar_item>
       </:sidebar>
       <Backpex.HTML.Layout.flash_messages flash={@flash} />

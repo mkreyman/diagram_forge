@@ -69,6 +69,10 @@ defmodule DiagramForgeWeb.Router do
 
       # Document management
       live_resources("/documents", DiagramForgeWeb.Admin.DocumentResource)
+
+      # AI Prompts management (custom LiveView, not Backpex)
+      live "/prompts", DiagramForgeWeb.Admin.PromptLive, :index
+      live "/prompts/:key/edit", DiagramForgeWeb.Admin.PromptEditLive, :edit
     end
   end
 

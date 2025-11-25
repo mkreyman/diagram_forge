@@ -151,6 +151,12 @@ defmodule DiagramForge.AI do
     |> tap_invalidate_cache()
   end
 
+  def delete_prompt(%Prompt{} = prompt) do
+    prompt
+    |> Repo.delete()
+    |> tap_invalidate_cache()
+  end
+
   defp tap_invalidate_cache({:ok, %Prompt{key: key}} = result) do
     invalidate_cache(key)
     result
@@ -205,6 +211,7 @@ The admin page should:
 2. **Display effective content** - DB value if exists, otherwise hardcoded default
 3. **On save** - INSERT if no DB record exists, UPDATE if it does
 4. **Show indicator** - whether viewing default or customized version
+5. **On delete** - DELETE from DB and go back to the hardcoded. Button grayed out if already default.
 
 ```elixir
 # In the AI context, provide a function for admin to get all prompts with their status
@@ -212,25 +219,37 @@ def list_all_prompts_with_status do
   db_prompts = Repo.all(Prompt) |> Map.new(&{&1.key, &1})
 
   for {key, description} <- known_prompt_keys() do
-    case Map.get(db_prompts, key) do
-      nil ->
-        %{
-          key: key,
-          description: description,
-          content: default_prompt(key),
-          source: :default,
-          db_record: nil
-        }
-      prompt ->
-        %{
-          key: key,
-          description: description,
-          content: prompt.content,
-          source: :database,
-          db_record: prompt
-        }
-    end
+    build_prompt_status(key, description, Map.get(db_prompts, key))
   end
+end
+
+def get_prompt_with_status(key) when is_binary(key) do
+  {_key, description} =
+    known_prompt_keys()
+    |> Enum.find({key, nil}, fn {k, _desc} -> k == key end)
+
+  db_prompt = Repo.get_by(Prompt, key: key)
+  build_prompt_status(key, description, db_prompt)
+end
+
+defp build_prompt_status(key, description, nil) do
+  %{
+    key: key,
+    description: description,
+    content: default_prompt(key),
+    source: :default,
+    db_record: nil
+  }
+end
+
+defp build_prompt_status(key, description, prompt) do
+  %{
+    key: key,
+    description: description,
+    content: prompt.content,
+    source: :database,
+    db_record: prompt
+  }
 end
 
 defp known_prompt_keys do
@@ -260,73 +279,160 @@ end
 
 ### 7. Backpex Admin Resource
 
+Note: Standard Backpex resource won't work directly because we need to:
+- List ALL known prompt keys (even when no DB record exists)
+- Show default vs customized indicator
+- Disable "Reset to Default" button when already showing default
+
+This likely requires a custom LiveView rather than standard Backpex resource:
+
 ```elixir
-# lib/diagram_forge_web/live/admin/prompt_resource.ex
-defmodule DiagramForgeWeb.Admin.PromptResource do
-  use Backpex.LiveResource,
-    layout: {DiagramForgeWeb.Layouts, :admin},
-    schema: DiagramForge.AI.Prompt,
-    repo: DiagramForge.Repo,
-    update_changeset: &DiagramForge.AI.Prompt.changeset/2,
-    create_changeset: &DiagramForge.AI.Prompt.changeset/2
+# lib/diagram_forge_web/live/admin/prompt_live.ex
+defmodule DiagramForgeWeb.Admin.PromptLive do
+  use DiagramForgeWeb, :live_view
 
-  @impl Backpex.LiveResource
-  def singular_name, do: "Prompt"
+  alias DiagramForge.AI
 
-  @impl Backpex.LiveResource
-  def plural_name, do: "Prompts"
+  @impl true
+  def mount(_params, _session, socket) do
+    {:ok, assign(socket, prompts: AI.list_all_prompts_with_status())}
+  end
 
-  @impl Backpex.LiveResource
-  def fields do
-    [
-      key: %{
-        module: Backpex.Fields.Text,
-        label: "Key",
-        searchable: true
-      },
-      description: %{
-        module: Backpex.Fields.Text,
-        label: "Description",
-        searchable: true
-      },
-      content: %{
-        module: Backpex.Fields.Textarea,
-        label: "Content"
-      },
-      inserted_at: %{
-        module: Backpex.Fields.DateTime,
-        label: "Created"
-      },
-      updated_at: %{
-        module: Backpex.Fields.DateTime,
-        label: "Updated"
-      }
-    ]
+  @impl true
+  def handle_event("edit", %{"key" => key}, socket) do
+    # Navigate to edit page or open modal
+    {:noreply, push_navigate(socket, to: ~p"/admin/prompts/#{key}/edit")}
+  end
+
+  @impl true
+  def handle_event("reset_to_default", %{"key" => key}, socket) do
+    # Find and delete the DB record
+    prompt = socket.assigns.prompts |> Enum.find(&(&1.key == key))
+
+    case prompt do
+      %{source: :database, db_record: record} ->
+        {:ok, _} = AI.delete_prompt(record)
+        {:noreply, assign(socket, prompts: AI.list_all_prompts_with_status())}
+
+      _ ->
+        # Already at default, shouldn't happen due to UI
+        {:noreply, socket}
+    end
   end
 end
 ```
 
-### 8. Add Route
+Template showing "Reset to Default" button state:
+
+```heex
+<div :for={prompt <- @prompts} class="border rounded-lg p-4 mb-4">
+  <div class="flex justify-between items-center">
+    <div>
+      <h3 class="font-semibold">{prompt.key}</h3>
+      <p class="text-sm text-gray-500">{prompt.description}</p>
+      <span class={[
+        "text-xs px-2 py-1 rounded",
+        prompt.source == :default && "bg-gray-100 text-gray-600",
+        prompt.source == :database && "bg-blue-100 text-blue-600"
+      ]}>
+        {if prompt.source == :default, do: "Default", else: "Customized"}
+      </span>
+    </div>
+    <div class="flex gap-2">
+      <button phx-click="edit" phx-value-key={prompt.key}
+              class="px-3 py-1 bg-blue-500 text-white rounded">
+        Edit
+      </button>
+      <button phx-click="reset_to_default" phx-value-key={prompt.key}
+              disabled={prompt.source == :default}
+              class={[
+                "px-3 py-1 rounded",
+                prompt.source == :default && "bg-gray-200 text-gray-400 cursor-not-allowed",
+                prompt.source == :database && "bg-red-500 text-white hover:bg-red-600"
+              ]}>
+        Reset to Default
+      </button>
+    </div>
+  </div>
+  <pre class="mt-2 p-2 bg-gray-50 text-sm overflow-x-auto max-h-40">{prompt.content}</pre>
+</div>
+```
+
+### 8. Edit LiveView
+
+```elixir
+# lib/diagram_forge_web/live/admin/prompt_edit_live.ex
+defmodule DiagramForgeWeb.Admin.PromptEditLive do
+  use DiagramForgeWeb, :live_view
+
+  alias DiagramForge.AI
+  alias DiagramForge.AI.Prompt
+
+  @impl true
+  def mount(%{"key" => key}, _session, socket) do
+    prompt_data = AI.get_prompt_with_status(key)
+
+    form =
+      case prompt_data.db_record do
+        nil ->
+          # No DB record yet - create changeset from default
+          %Prompt{key: key, content: prompt_data.content, description: prompt_data.description}
+          |> Prompt.changeset(%{})
+          |> to_form()
+
+        record ->
+          record |> Prompt.changeset(%{}) |> to_form()
+      end
+
+    {:ok, assign(socket, prompt_data: prompt_data, form: form)}
+  end
+
+  @impl true
+  def handle_event("save", %{"prompt" => params}, socket) do
+    result =
+      case socket.assigns.prompt_data.db_record do
+        nil -> AI.create_prompt(Map.put(params, "key", socket.assigns.prompt_data.key))
+        record -> AI.update_prompt(record, params)
+      end
+
+    case result do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Prompt saved successfully")
+         |> push_navigate(to: ~p"/admin/prompts")}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, form: to_form(changeset))}
+    end
+  end
+end
+```
+
+### 9. Add Routes
 
 ```elixir
 # lib/diagram_forge_web/router.ex
 # In admin scope
-backpex_routes(PromptResource, only: [:index, :show, :edit, :update])
+live "/prompts", Admin.PromptLive, :index
+live "/prompts/:key/edit", Admin.PromptEditLive, :edit
 ```
 
 ## Cache Strategy
 
 - **ETS table** for fast reads (prompts are read frequently during AI calls)
-- **Invalidate on update** - Clear specific key when prompt is edited
+- **Invalidate on update/delete** - Clear specific key when prompt is edited or reset to default
 - **Fallback to defaults** - If key not in DB, use hardcoded module default
 - **No TTL needed** - Cache is invalidated explicitly on admin updates
 
 ## Testing Considerations
 
 1. Test that DB prompts override defaults
-2. Test cache invalidation on update
+2. Test cache invalidation on update and delete
 3. Test fallback to defaults when DB prompt missing
-4. Mock prompts in existing AI tests
+4. Test "Reset to Default" deletes DB record and returns to hardcoded default
+5. Test "Reset to Default" button is disabled when already at default
+6. Mock prompts in existing AI tests
 
 ## Future Enhancements
 

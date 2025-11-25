@@ -7,6 +7,9 @@ defmodule DiagramForge.Application do
 
   @impl true
   def start(_type, _args) do
+    # Start ETS cache for configurable prompts
+    DiagramForge.AI.start_cache()
+
     children = [
       DiagramForgeWeb.Telemetry,
       DiagramForge.Repo,
