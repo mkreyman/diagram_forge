@@ -418,14 +418,18 @@ defmodule DiagramForge.Diagrams do
   Raises `ArgumentError` if `:user_id` is missing when usage tracking is enabled.
   """
   def fix_diagram_syntax(%Diagram{} = diagram, opts \\ []) do
+    max_retries = Keyword.get(opts, :max_retries, 3)
+    do_fix_diagram_syntax(diagram.diagram_source, diagram.summary, opts, max_retries)
+  end
+
+  defp do_fix_diagram_syntax(original_source, summary, opts, retries_left) do
     alias DiagramForge.AI.Client
-    alias DiagramForge.AI.Options
     alias DiagramForge.AI.Prompts
 
     # Validate options early - fail fast if user_id missing with tracking enabled
     ai_opts = build_ai_opts!(opts, "syntax_fix")
     ai_client = opts[:ai_client] || Application.get_env(:diagram_forge, :ai_client, Client)
-    user_prompt = Prompts.fix_mermaid_syntax_prompt(diagram.diagram_source, diagram.summary)
+    user_prompt = Prompts.fix_mermaid_syntax_prompt(original_source, summary)
 
     try do
       json =
@@ -440,7 +444,13 @@ defmodule DiagramForge.Diagrams do
 
       case json do
         %{"mermaid" => fixed_mermaid} when is_binary(fixed_mermaid) ->
-          {:ok, fixed_mermaid}
+          # If the AI returned unchanged code and we have retries left, try again
+          if normalize_whitespace(fixed_mermaid) == normalize_whitespace(original_source) and
+               retries_left > 0 do
+            do_fix_diagram_syntax(original_source, summary, opts, retries_left - 1)
+          else
+            {:ok, fixed_mermaid}
+          end
 
         _ ->
           {:error, "Invalid response from AI"}
@@ -448,6 +458,12 @@ defmodule DiagramForge.Diagrams do
     rescue
       e -> {:error, Exception.message(e)}
     end
+  end
+
+  defp normalize_whitespace(str) do
+    str
+    |> String.trim()
+    |> String.replace(~r/\s+/, " ")
   end
 
   @doc """
@@ -467,36 +483,8 @@ defmodule DiagramForge.Diagrams do
   Raises `ArgumentError` if `:user_id` is missing when usage tracking is enabled.
   """
   def fix_diagram_syntax_source(diagram_source, summary, opts \\ []) do
-    alias DiagramForge.AI.Client
-    alias DiagramForge.AI.Options
-    alias DiagramForge.AI.Prompts
-
-    # Validate options early - fail fast if user_id missing with tracking enabled
-    ai_opts = build_ai_opts!(opts, "syntax_fix")
-    ai_client = opts[:ai_client] || Application.get_env(:diagram_forge, :ai_client, Client)
-    user_prompt = Prompts.fix_mermaid_syntax_prompt(diagram_source, summary)
-
-    try do
-      json =
-        ai_client.chat!(
-          [
-            %{"role" => "system", "content" => Prompts.diagram_system_prompt()},
-            %{"role" => "user", "content" => user_prompt}
-          ],
-          ai_opts
-        )
-        |> Jason.decode!()
-
-      case json do
-        %{"mermaid" => fixed_mermaid} when is_binary(fixed_mermaid) ->
-          {:ok, fixed_mermaid}
-
-        _ ->
-          {:error, "Invalid response from AI"}
-      end
-    rescue
-      e -> {:error, Exception.message(e)}
-    end
+    max_retries = Keyword.get(opts, :max_retries, 3)
+    do_fix_diagram_syntax(diagram_source, summary, opts, max_retries)
   end
 
   # Tag Management Functions

@@ -29,15 +29,23 @@ defmodule DiagramForge.AI.Prompts do
   - Prefer 'flowchart' or 'sequenceDiagram' unless another type is clearly better.
   - Use concise labels, avoid sentences on nodes.
 
-  CRITICAL Mermaid syntax rules to avoid errors:
-  - Edge labels with special chars MUST use quotes: -->|"{:ok, pid}"| not -->|{:ok, pid}|
-  - Node labels with special chars MUST use quotes: A["GenServer.call/3"]
-  - AVOID quotes inside node labels. Instead of: A[raise "error"] use: A[raise error] or A[Raise Error]
-  - Parentheses in labels can break parsing: use A["func(arg)"] or simplify to A[func arg]
-  - Curly braces {} are NEVER allowed unquoted - they define shapes in Mermaid
-  - Pipes | in labels must be quoted or escaped
-  - Keep labels SHORT - use abbreviations or simplify text with quotes/special chars
-  - When in doubt, simplify the label text rather than adding complex escaping
+  CRITICAL Mermaid syntax rules - ALWAYS quote labels with special characters:
+
+  Node labels with ANY of these MUST be quoted with double quotes:
+  - Parentheses: A["process(file)"] not A[process(file)]
+  - Dots: A["File.open"] not A[File.open]
+  - Exclamation marks: A["File.open!"] not A[File.open!]
+  - Colons: A["key: value"] not A[key: value]
+  - Curly braces: NEVER use {} in node labels, they define shapes
+
+  Edge labels with special chars MUST be quoted:
+  - -->|"{:ok, pid}"| not -->|{:ok, pid}|
+  - -->|"error: msg"| not -->|error: msg|
+
+  AVOID nested quotes - simplify instead:
+  - A[raise error] not A[raise "error"]
+
+  When in doubt, QUOTE the label or simplify the text.
 
   Only output strictly valid JSON with the requested fields.
   """
@@ -53,31 +61,41 @@ defmodule DiagramForge.AI.Prompts do
   Context about what this diagram should show:
   {{SUMMARY}}
 
-  Please fix the Mermaid syntax so it renders correctly. Common issues include:
-  - Curly braces in edge labels MUST be quoted: -->|"{:ok, pid}"| not -->|{:ok, pid}|
-  - Curly braces {} define shapes in Mermaid - NEVER use them unquoted in labels
-  - Nested quotes in node labels: A[raise "error"] should become A[raise error] or A["raise error"] with inner quotes removed
-  - Parentheses in node labels: A[func(arg)] should become A["func(arg)"] or A[func arg]
-  - Pipes | in labels must be quoted
-  - Special characters in node labels need quotes: A["Label with special: chars"]
-  - Missing or incorrect node IDs (each node needs a unique ID like A, B, C)
-  - Invalid arrow syntax (use --> not -> for flowcharts)
-  - Incorrect diagram type declaration
+  SCAN EVERY NODE AND EDGE LABEL for these issues:
 
-  SIMPLIFY when fixing:
-  - Remove nested quotes entirely rather than trying to escape them
-  - Shorten labels that have complex special characters
-  - Use simple alphanumeric labels where possible
+  1. PARENTHESES in node labels - MUST be quoted or removed:
+     WRONG: B[process(file)]  or  A[func(arg)]
+     RIGHT: B["process(file)"]  or  B[process file]  or  A["func(arg)"]
 
-  Return ONLY valid JSON with the fixed mermaid code:
+  2. CURLY BRACES {} - define shapes in Mermaid, NEVER unquoted in labels:
+     WRONG: -->|{:ok, pid}|
+     RIGHT: -->|"{:ok, pid}"|
+
+  3. DOTS in node labels - safer to quote:
+     WRONG: A[File.open]  or  C[IO.puts]
+     RIGHT: A["File.open"]  or  C["IO.puts"]
+
+  4. EXCLAMATION MARKS - must be quoted:
+     WRONG: F[File.open!]
+     RIGHT: F["File.open!"]
+
+  5. NESTED QUOTES - remove inner quotes:
+     WRONG: A[raise "error"]
+     RIGHT: A[raise error]  or  A["raise error"]
+
+  6. COLONS, PIPES, and other special chars need quotes:
+     WRONG: A[key: value]
+     RIGHT: A["key: value"]
+
+  APPROACH: Go through EACH node label [like this] and EACH edge label |like this| and fix any that contain ( ) { } . ! : | or quotes.
+
+  Return ONLY valid JSON:
 
   {
     "mermaid": "fixed mermaid code here"
   }
 
-  Keep the diagram's intent and structure as close to the original as possible.
-  Only fix syntax issues, don't redesign the diagram.
-  Only output JSON.
+  Keep the diagram's structure. Only fix syntax, don't redesign.
   """
 
   # Default functions - return module attributes directly (used by DiagramForge.AI fallback)
