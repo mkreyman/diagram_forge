@@ -718,7 +718,52 @@ These require AI intervention or manual fixes:
 | Elixir Project Structure | `-->>` | Sequence diagram syntax in flowchart |
 | Basic OTP Server Workflow | `\|"":next_number"\|` | Malformed edge label |
 
-These edge cases will be addressed by Phase 2 (error context) and Phase 3 (Mermaid version in prompts).
+These edge cases are now better addressed by Phase 2 (error context) and Phase 3 (Mermaid version in prompts).
+
+## Phase 2 & 3 Implementation Status (November 2025)
+
+**STATUS: COMPLETED**
+
+### Phase 2: Error Capture from Client
+
+1. **Updated Mermaid JS Hook** (`assets/js/app.js`)
+   - Changed from `mermaid.run()` to async `mermaid.render()` with try/catch
+   - Captures parse errors with message, line number, expected tokens
+   - Pushes errors to server via `pushEvent("mermaid_render_error", ...)`
+   - Displays styled error message in diagram container on failure
+
+2. **LiveView Event Handlers** (`lib/diagram_forge_web/live/diagram_studio_live.ex`)
+   - Added `mermaid_error` assign to track current parse error
+   - `handle_event("mermaid_render_error", ...)` stores error info
+   - `handle_event("mermaid_render_success", ...)` clears error state
+   - Error context passed to `fix_diagram_syntax` calls
+
+3. **AI Prompt Enhancement** (`lib/diagram_forge/ai/prompts.ex`)
+   - `fix_mermaid_syntax_prompt/3` now accepts optional `mermaid_error` map
+   - `format_error_context/1` formats error for AI prompt
+   - `{{ERROR_CONTEXT}}` placeholder added to fix template
+
+### Phase 3: Mermaid Version Awareness
+
+1. **Version Constant** (`lib/diagram_forge/ai/prompts.ex`)
+   - Added `@mermaid_version "11.12.1"` module attribute
+   - Included in diagram system prompt: "Target Mermaid version: 11.12.1"
+   - Included in error context when formatting parse errors
+
+### How It Works Together
+
+When a diagram has a syntax error:
+1. JS hook captures the error with full details (message, line, expected tokens, Mermaid version)
+2. Error is stored in LiveView assigns
+3. When user clicks "Fix Syntax", error context is passed to AI
+4. AI receives:
+   - The broken Mermaid code
+   - Context about what the diagram shows
+   - **The actual parse error from Mermaid 11.12.1**
+   - What tokens were expected
+   - The line number where error occurred
+
+This allows the AI to make targeted fixes rather than guessing.
 
 ## Success Metrics
 
