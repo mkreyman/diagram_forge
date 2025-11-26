@@ -36,7 +36,6 @@ defmodule DiagramForge.Diagrams.Diagram do
     many_to_many :users, DiagramForge.Accounts.User,
       join_through: DiagramForge.Diagrams.UserDiagram
 
-    field :slug, :string
     field :title, :string
 
     field :tags, {:array, :string}, default: []
@@ -59,7 +58,6 @@ defmodule DiagramForge.Diagrams.Diagram do
     |> cast(attrs, [
       :document_id,
       :forked_from_id,
-      :slug,
       :title,
       :tags,
       :format,
@@ -68,9 +66,8 @@ defmodule DiagramForge.Diagrams.Diagram do
       :summary,
       :notes_md
     ])
-    |> validate_required([:title, :format, :diagram_source, :slug])
+    |> validate_required([:title, :format, :diagram_source])
     |> validate_inclusion(:visibility, [:private, :unlisted, :public])
-    |> unique_constraint(:slug)
     |> foreign_key_constraint(:document_id)
     |> foreign_key_constraint(:forked_from_id)
   end

@@ -57,23 +57,12 @@ document =
 
 IO.puts("Document created with ID: #{document.id}")
 
-# Helper function to create a URL-safe slug from a title
-generate_slug = fn title ->
-  title
-  |> String.downcase()
-  |> String.replace(~r/[^a-z0-9\s-]/, "")
-  |> String.replace(~r/\s+/, "-")
-  |> String.replace(~r/-+/, "-")
-  |> String.trim("-")
-end
-
 # Helper function to create diagrams and assign ownership
 create_diagram = fn title, tags, mermaid, summary, notes, visibility ->
   diagram =
     %Diagram{}
     |> Diagram.changeset(%{
       document_id: document.id,
-      slug: generate_slug.(title),
       title: title,
       tags: tags,
       diagram_source: mermaid,

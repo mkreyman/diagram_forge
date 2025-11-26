@@ -140,7 +140,6 @@ defmodule DiagramForge.Diagrams.Workers.ProcessDocumentJob do
   defp save_diagram(doc, diagram, index) do
     attrs = %{
       title: diagram.title,
-      slug: diagram.slug,
       tags: diagram.tags,
       format: diagram.format,
       diagram_source: diagram.diagram_source,

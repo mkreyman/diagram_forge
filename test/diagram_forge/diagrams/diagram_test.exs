@@ -16,16 +16,6 @@ defmodule DiagramForge.Diagrams.DiagramTest do
 
       assert "can't be blank" in errors_on(changeset).title
       assert "can't be blank" in errors_on(changeset).diagram_source
-      assert "can't be blank" in errors_on(changeset).slug
-    end
-
-    test "enforces unique slug" do
-      _diagram1 = fixture(:diagram, slug: "unique-slug")
-
-      changeset = build(:diagram, slug: "unique-slug")
-      {:error, changeset} = Repo.insert(changeset)
-
-      assert "has already been taken" in errors_on(changeset).slug
     end
 
     test "allows valid format values" do
@@ -63,7 +53,6 @@ defmodule DiagramForge.Diagrams.DiagramTest do
       diagram =
         fixture(:diagram,
           title: "GenServer Flow",
-          slug: "genserver-flow",
           tags: ["otp", "concurrency", "elixir"],
           format: :mermaid,
           diagram_source: "flowchart TD\n  A --> B",
@@ -74,7 +63,6 @@ defmodule DiagramForge.Diagrams.DiagramTest do
       Diagrams.assign_diagram_to_user(diagram.id, user.id)
 
       assert diagram.title == "GenServer Flow"
-      assert diagram.slug == "genserver-flow"
       assert diagram.tags == ["otp", "concurrency", "elixir"]
       assert diagram.format == :mermaid
       assert diagram.diagram_source == "flowchart TD\n  A --> B"

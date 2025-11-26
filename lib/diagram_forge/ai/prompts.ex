@@ -35,18 +35,27 @@ defmodule DiagramForge.AI.Prompts do
 
   CRITICAL Mermaid 11.x syntax rules:
 
-  NODE LABELS - Quote with double quotes if they contain special chars:
-  - Parentheses: A["process(file)"] not A[process(file)]
-  - Dots: A["File.open"] not A[File.open]
-  - Exclamation: A["File.open!"] not A[File.open!]
-  - Colons: A["key: value"] not A[key: value]
-  - @ symbol: A["@spec"] not A[@spec]
-  - Curly braces: NEVER use {} unquoted, they define shapes
+  NODE LABELS - ALWAYS use proper syntax with brackets:
+  - WRONG: A"text"  RIGHT: A["text"]
+  - Quote with double quotes if they contain special chars:
+    - Parentheses: A["process(file)"] not A[process(file)]
+    - Dots: A["File.open"] not A[File.open]
+    - Exclamation: A["File.open!"] not A[File.open!]
+    - Colons: A["key: value"] not A[key: value]
+    - @ symbol: A["@spec"] not A[@spec]
+    - Curly braces: NEVER use {} unquoted, they define shapes
 
   EDGE LABELS - MUST be quoted if they contain { } [ ] ( ):
   - -->|"{:ok, pid}"| not -->|{:ok, pid}|
   - -->|"[1,2,3]"| not -->|[1,2,3]|
   - -->|"func(arg)"| not -->|func(arg)|
+
+  NEVER USE CODE LITERALS IN LABELS - Use descriptive text instead:
+  - WRONG: A["File.open!(\"config.txt\")"]  RIGHT: A["File.open!(config)"]
+  - WRONG: |"[\"cat\", \"dog\"]"|  RIGHT: |"list of strings"| or |"[&quot;cat&quot;, &quot;dog&quot;]"|
+  - WRONG: C["name: \"\""]  RIGHT: C["name: empty string"]
+  - WRONG: G["@color_map[\":hsb\"]"]  RIGHT: G["@color_map[:hsb]"]
+  - WRONG: |"Enum.join(list, \", \")"|  RIGHT: |"Enum.join with separator"|
 
   NEVER USE ESCAPE SEQUENCES:
   - NO backslash escapes: Never use \" or \' or \n inside labels
@@ -56,15 +65,21 @@ defmodule DiagramForge.AI.Prompts do
   NESTED QUOTES - Two options:
   1. SIMPLIFY (preferred): Remove inner quotes entirely
      - A["print_table(headers)"] not A["print_table([\"a\", \"b\"])"]
+     - G["@color_map[:hsb]"] not G["@color_map[\":hsb\"]"]
   2. HTML ENTITY (when quotes essential): Use &quot;
      - F["Result: &quot;cat&quot;"] for quotes inside labels
+     - |"[&quot;a&quot;, &quot;b&quot;]"| for edge labels with inner quotes
 
   BRACKETS MUST MATCH:
   - Every [ needs ], every " needs ", every { needs }
   - WRONG: B["Result: [1,2,3"]] or I["text"}
   - RIGHT: B["Result: [1,2,3]"] or I["text"]
 
-  When in doubt: QUOTE the label AND SIMPLIFY the content.
+  NEVER USE PLACEHOLDER SYNTAX:
+  - WRONG: ... or %% more edges here
+  - RIGHT: Write out all nodes/edges explicitly or omit them
+
+  When in doubt: QUOTE the label AND SIMPLIFY the content to avoid inner quotes.
 
   Only output strictly valid JSON with the requested fields.
   """
@@ -83,101 +98,124 @@ defmodule DiagramForge.AI.Prompts do
 
   SCAN EVERY NODE AND EDGE LABEL for these issues:
 
-  1. PARENTHESES in node labels - MUST be quoted or removed:
+  1. MISSING BRACKETS ON NODE LABELS:
+     WRONG: A"text"  or  B"value"
+     RIGHT: A["text"]  or  B["value"]
+     Every node with a label MUST have brackets: ID["label"] not ID"label"
+
+  2. PARENTHESES in node labels - MUST be quoted or removed:
      WRONG: B[process(file)]  or  A[func(arg)]
      RIGHT: B["process(file)"]  or  B[process file]  or  A["func(arg)"]
 
-  2. EDGE LABELS WITH SPECIAL CHARS - MUST be quoted in Mermaid 11.x:
+  3. EDGE LABELS WITH SPECIAL CHARS - MUST be quoted in Mermaid 11.x:
      WRONG: -->|{:ok, pid}|  or  -->|[1,2,3]|  or  -->|func(arg)|
      RIGHT: -->|"{:ok, pid}"|  or  -->|"[1,2,3]"|  or  -->|"func(arg)"|
      ANY edge label containing { } [ ] ( ) MUST be wrapped in quotes: |"..."|
 
-  3. DOTS in node labels - safer to quote:
+  4. DOTS in node labels - safer to quote:
      WRONG: A[File.open]  or  C[IO.puts]
      RIGHT: A["File.open"]  or  C["IO.puts"]
 
-  4. EXCLAMATION MARKS - must be quoted:
+  5. EXCLAMATION MARKS - must be quoted:
      WRONG: F[File.open!]
      RIGHT: F["File.open!"]
 
-  5. NESTED QUOTES - remove inner quotes:
-     WRONG: A[raise "error"]
-     RIGHT: A[raise error]  or  A["raise error"]
+  6. NESTED QUOTES - remove inner quotes or use HTML entities:
+     WRONG: A[raise "error"]  or  A["raise \"error\""]
+     RIGHT: A[raise error]  or  A["raise error"]  or  A["raise &quot;error&quot;"]
 
-  6. COLONS, PIPES, and other special chars need quotes:
+  7. COLONS, PIPES, and other special chars need quotes:
      WRONG: A[key: value]
      RIGHT: A["key: value"]
 
-  7. MISMATCHED BRACKETS - opening and closing must match:
+  8. MISMATCHED BRACKETS - opening and closing must match:
      WRONG: A["label']  or  B["text}  or  C['value"]
      RIGHT: A["label"]  or  B["text"]  or  C["value"]
      Check that [ matches ], " matches ", ' matches '
 
-  8. INVALID ARROW SYNTAX - use only valid Mermaid arrows:
-     WRONG: A -->> B  or  A ==> B  or  A ~~> B
-     RIGHT: A --> B  or  A ---> B  or  A -.-> B  or  A ==> B (subgraph only)
+  9. INVALID ARROW SYNTAX - use only valid Mermaid arrows:
+     WRONG: A -->> B  or  A ~~> B
+     RIGHT: A --> B  or  A ---> B  or  A -.-> B  or  A ==> B
      Valid arrows: -->, --->, -.->, -.-, ==>, <-->, ---|text|
 
-  9. MIXED QUOTE TYPES - don't mix " and ' in the same label:
-     WRONG: A["it's here']  or  B['say "hello"']
-     RIGHT: A["its here"]  or  B["say hello"]  or  A["it is here"]
+  10. MIXED QUOTE TYPES - don't mix " and ' in the same label:
+      WRONG: A["it's here']  or  B['say "hello"']
+      RIGHT: A["its here"]  or  B["say hello"]  or  A["it is here"]
 
-  10. NO ESCAPED QUOTES - Mermaid CANNOT have \" or \' inside labels:
+  11. NO ESCAPED QUOTES - Mermaid CANNOT have \" or \' inside labels:
       WRONG: A["say \"hello\""]  or  B["it\'s here"]  or  |"colors[\"red\"]"|
       RIGHT: A["say hello"]  or  B["its here"]  or  |"colors red"|
       CRITICAL: Remove ALL backslash escapes. Simplify text to avoid inner quotes entirely.
-      If a label needs quotes inside, REMOVE them or describe the content differently.
 
-  11. ESCAPED PARENTHESES - remove backslash escapes:
+  12. ESCAPED PARENTHESES - remove backslash escapes:
       WRONG: A["File.open\\(file\\)"]  or  B["func\\(arg\\)"]
       RIGHT: A["File.open(file)"]  or  B["func(arg)"]
-      Mermaid doesn't use backslash escapes - just quote the label properly
 
-  12. UNQUOTED @ SYMBOL - @ must be quoted in node labels:
+  13. UNQUOTED @ SYMBOL - @ must be quoted in node labels:
       WRONG: A[@spec]  or  B[@type]  or  C[@doc]
       RIGHT: A["@spec"]  or  B["@type"]  or  C["@doc"]
 
-  13. UNCLOSED OR MISSING QUOTES - every quote must have a matching close:
+  14. UNCLOSED OR MISSING QUOTES:
       WRONG: E["IO.puts 'End of macro]  or  F["some text]
       RIGHT: E["IO.puts End of macro"]  or  F["some text"]
-      If a label has opening quotes, ensure closing quotes exist
 
-  14. TRUNCATED OR INCOMPLETE NODES - if a diagram ends mid-node, complete it:
-      WRONG: A[  (incomplete)  or  K["{  (truncated)
-      RIGHT: A["placeholder"]  or  remove the incomplete node entirely
-      If impossible to fix, remove the broken node/edge
+  15. EMPTY STRING LITERALS - replace "" with descriptive text:
+      WRONG: C["name: \"\""]  or  C["name: ""]
+      RIGHT: C["name: empty string"]
+      Replace empty string literals with descriptive words.
 
-  15. NESTED QUOTES WITH SPECIAL CHARS - simplify labels with inner quotes AND colons:
+  16. FUNCTION CALLS WITH STRING ARGUMENTS - remove inner string quotes:
+      WRONG: D["File.open!(\"config.txt\")"]  or  F["case File.open(\"file\")"]
+      RIGHT: D["File.open!(config)"]  or  F["case File.open(file)"]
+      Remove quotes around function arguments to avoid nesting.
+
+  17. MAP/KEYWORD ACCESS WITH INNER QUOTES - simplify the syntax:
+      WRONG: G["@color_map[\":hsb\"]"]  or  C["map[\":key\"]"]
+      RIGHT: G["@color_map[:hsb]"]  or  C["map[:key]"]
+      Remove the inner quotes around atom keys.
+
+  18. Enum.join WITH SEPARATOR - use descriptive text:
+      WRONG: |"Enum.join(list, \", \")"|  or  C["Enum.join(list, \", \")"]
+      RIGHT: |"Enum.join with separator"|  or  C["Enum.join with separator"]
+      Replace separator string arguments with descriptive words.
+
+  19. DOUBLED QUOTES - normalize to single pair:
+      WRONG: C[""caterpillar""]  or  A[""text""]
+      RIGHT: C["caterpillar"]  or  A["text"]
+      Remove extra quotes, keep only one outer pair.
+
+  20. NESTED QUOTES WITH SPECIAL CHARS - simplify or use &quot;:
       WRONG: G["@color_map[\":hsb\"]"]  or  A["colors[\":red\"]"]
-      RIGHT: G["@color_map hsb"]  or  A["colors red"]
-      When quotes appear inside already-quoted labels, remove inner quotes and simplify
+      RIGHT: G["@color_map[:hsb]"]  or  A["colors[:red]"]
+      When quotes appear inside already-quoted labels, remove inner quotes.
 
-  16. DOUBLE BRACKETS OR BRACES - remove duplicate closings:
-      WRONG: B["Result: [1, 2, 3"]]  or  I["result"}
-      RIGHT: B["Result: 1, 2, 3"]  or  I["result"]
-      A node cannot have ]] or "} - simplify content and use single closing
-
-  17. HTML ENTITIES FOR NESTED QUOTES - use &quot; for quotes inside node labels:
+  21. HTML ENTITIES FOR ESSENTIAL QUOTES - use &quot; when quotes are necessary:
       WRONG: F["Result: [{1, :a, \"cat\"}, {2, :b, \"dog\"}]"]
       RIGHT: F["Result: [{1, :a, &quot;cat&quot;}, {2, :b, &quot;dog&quot;}]"]
+      ALSO RIGHT: F["Result: tuples with strings"] (simpler)
       When you MUST show quotes inside a quoted label, replace inner " with &quot;
-      This is the ONLY way to have quotes inside ["..."] labels in Mermaid.
 
-  18. ESCAPE SEQUENCES - replace \n, \t, \r with words:
+  22. ESCAPE SEQUENCES - replace \n, \t, \r with words:
       WRONG: D["split(\"\n\")"]  or  D[split("\n")]
       RIGHT: D["split by newline"]  or  D["split newline"]
-      Mermaid interprets \n as a line break. Use descriptive words instead.
 
-  19. STRING LITERALS IN FUNCTION CALLS - simplify instead of escaping:
-      WRONG: G["print_table([\"a\", \"b\", \"c\"])"]
-      RIGHT: G["print_table(headers)"]  or  G["print_table(columns)"]
-      When a label has a function call with string array arguments, replace the
-      array with a descriptive word like "headers", "items", "columns", etc.
+  23. STRING ARRAYS IN FUNCTION CALLS - use descriptive words:
+      WRONG: G["print_table([\"a\", \"b\", \"c\"])"]  or  |"[[\"a\"], [\"b\"]]"|
+      RIGHT: G["print_table(headers)"]  or  |"nested list"| or |"[[&quot;a&quot;], [&quot;b&quot;]]"|
 
-  20. UNRECOVERABLE TRUNCATED EDGES - remove completely:
-      WRONG: K -->|"[{  (incomplete edge with no target)
-      RIGHT: (remove the entire line)
-      If an edge has no target node or is clearly truncated mid-syntax, delete it.
+  24. ELLIPSIS OR PLACEHOLDER SYNTAX - remove or expand:
+      WRONG: ...  or  % more edges  or  %%
+      RIGHT: (remove the line entirely or write out actual nodes/edges)
+      Mermaid does not understand placeholder syntax.
+
+  25. UNRECOVERABLE TRUNCATED LINES - remove completely:
+      WRONG: K -->|"[{  or  A["incomplete
+      RIGHT: (delete the entire broken line)
+
+  26. INTERPOLATION IN ERROR STRINGS - replace with summary:
+      WRONG: H["raise \"Failed: \#{msg}\""]
+      RIGHT: H["raise error message"]
+      Replace complex error strings with simple descriptions.
 
   APPROACH: Go through EACH node label [like this] and EACH edge label |like this| and fix any that contain ( ) { } . ! : | @ \ or quotes. Edge labels with special chars MUST be quoted. Verify all brackets match, arrows are valid, no escape sequences. For nested quotes, prefer simplification; if quotes are essential, use &quot; HTML entity. Remove unrecoverable truncated lines.
 

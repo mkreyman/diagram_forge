@@ -584,18 +584,6 @@ defmodule DiagramForge.DiagramsTest do
       assert forked.format == original.format
     end
 
-    test "generates unique slug for forked diagram" do
-      user = fixture(:user)
-      original = fixture(:diagram, user: user, slug: "original-slug")
-
-      assert {:ok, forked} = Diagrams.fork_diagram(original.id, user.id)
-
-      assert forked.slug != original.slug
-      assert String.starts_with?(forked.slug, "original-slug-")
-      # Should have additional characters after the dash (random hex string)
-      assert String.length(forked.slug) > String.length("original-slug-")
-    end
-
     test "sets forked_from_id to original" do
       user = fixture(:user)
       original = fixture(:diagram, user: user)

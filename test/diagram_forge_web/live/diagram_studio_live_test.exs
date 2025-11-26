@@ -14,6 +14,16 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
     test "initializes with empty state", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 
+      # Unauthenticated users see login prompt instead of upload form
+      assert render(view) =~ "Sign in to upload documents"
+      assert has_element?(view, "h1", "DiagramForge Studio")
+    end
+
+    test "shows upload form for authenticated users", %{conn: conn} do
+      user = fixture(:user)
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
+      {:ok, view, _html} = live(conn, ~p"/")
+
       assert view
              |> element("#upload-form")
              |> has_element?()
@@ -214,7 +224,9 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
   end
 
   describe "file upload" do
-    test "displays upload area and accepts files", %{conn: conn} do
+    test "displays upload area and accepts files for authenticated users", %{conn: conn} do
+      user = fixture(:user)
+      conn = Plug.Test.init_test_session(conn, %{user_id: user.id})
       {:ok, view, _html} = live(conn, ~p"/")
 
       # Verify upload area exists with instructional text
@@ -225,6 +237,16 @@ defmodule DiagramForgeWeb.DiagramStudioLiveTest do
       # Verify upload button is not shown when no file is selected
       # (button only appears after selecting a file)
       refute has_element?(view, "#upload-form button[type='submit']")
+    end
+
+    test "shows login prompt for unauthenticated users", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/")
+
+      # Unauthenticated users see login prompt instead of upload form
+      refute html =~ "id=\"upload-form\""
+      assert html =~ "Sign in to upload documents"
+      assert html =~ "Upload a document"
+      assert html =~ "PDF, Markdown, or Text"
     end
 
     test "rejects files with invalid type", %{conn: conn} do

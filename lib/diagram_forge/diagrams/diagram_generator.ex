@@ -47,7 +47,6 @@ defmodule DiagramForge.Diagrams.DiagramGenerator do
 
     attrs = %{
       title: json["title"],
-      slug: slugify(json["title"]),
       tags: json["tags"] || [],
       format: :mermaid,
       diagram_source: sanitized_mermaid,
@@ -63,15 +62,6 @@ defmodule DiagramForge.Diagrams.DiagramGenerator do
     else
       {:error, changeset}
     end
-  end
-
-  defp slugify(nil), do: "diagram-#{:os.system_time(:millisecond)}"
-
-  defp slugify(title) do
-    title
-    |> String.downcase()
-    |> String.replace(~r/[^a-z0-9]+/, "-")
-    |> String.trim("-")
   end
 
   # Sanitize Mermaid code to fix common syntax issues before persisting

@@ -75,7 +75,6 @@ defmodule Mix.Tasks.Export.Diagrams do
       title: diagram.title,
       description: diagram.description,
       source: diagram.source,
-      slug: diagram.slug,
       tags: diagram.tags || [],
       visibility: diagram.visibility,
       inserted_at: diagram.inserted_at |> DateTime.to_iso8601(),

@@ -50,11 +50,6 @@ defmodule DiagramForgeWeb.Admin.DiagramResource do
         label: "Title",
         searchable: true
       },
-      slug: %{
-        module: Backpex.Fields.Text,
-        label: "Slug",
-        searchable: true
-      },
       visibility: %{
         module: Backpex.Fields.Select,
         label: "Visibility",

@@ -6,7 +6,6 @@ defmodule DiagramForge.Repo.Migrations.CreateDiagrams do
       add :id, :binary_id, primary_key: true
       add :document_id, references(:documents, type: :binary_id, on_delete: :nilify_all)
       add :forked_from_id, references(:diagrams, type: :binary_id, on_delete: :nilify_all)
-      add :slug, :string, null: false
       add :title, :string, null: false
       add :tags, {:array, :string}, default: []
       add :format, :string, null: false, default: "mermaid"
@@ -18,7 +17,6 @@ defmodule DiagramForge.Repo.Migrations.CreateDiagrams do
       timestamps()
     end
 
-    create unique_index(:diagrams, [:slug])
     create index(:diagrams, [:document_id])
     create index(:diagrams, [:forked_from_id])
     create index(:diagrams, [:visibility])

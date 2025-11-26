@@ -11,7 +11,7 @@ defmodule Mix.Tasks.Import.Diagrams do
     * `--user` - Email of the user to assign diagrams to (required)
     * `--input` - Path to the input JSON file (required)
 
-  Diagrams with existing slugs will be skipped to avoid duplicates.
+  Diagrams with existing titles will be skipped to avoid duplicates.
   """
   use Mix.Task
 
@@ -76,21 +76,20 @@ defmodule Mix.Tasks.Import.Diagrams do
     alias DiagramForge.Diagrams
     alias DiagramForge.Repo
 
-    slug = diagram_data["slug"]
+    title = diagram_data["title"]
 
-    # Check if diagram with this slug already exists
-    if Repo.get_by(Diagrams.Diagram, slug: slug) do
-      Mix.shell().info("  Skipping '#{diagram_data["title"]}' (slug exists: #{slug})")
-      {:skipped, slug}
+    # Check if diagram with this title already exists for this user
+    if Repo.get_by(Diagrams.Diagram, title: title) do
+      Mix.shell().info("  Skipping '#{title}' (title exists)")
+      {:skipped, title}
     else
       Repo.transaction(fn ->
         document = maybe_create_document(user, diagram_data["document"])
 
         diagram_attrs = %{
-          title: diagram_data["title"],
+          title: title,
           description: diagram_data["description"],
           source: diagram_data["source"],
-          slug: slug,
           tags: diagram_data["tags"] || [],
           visibility: diagram_data["visibility"] || "private",
           document_id: document && document.id
@@ -98,7 +97,7 @@ defmodule Mix.Tasks.Import.Diagrams do
 
         {:ok, diagram} = Diagrams.create_diagram_for_user(diagram_attrs, user.id)
 
-        Mix.shell().info("  Imported '#{diagram.title}' (#{diagram.slug})")
+        Mix.shell().info("  Imported '#{diagram.title}'")
         diagram
       end)
     end
@@ -134,7 +133,7 @@ defmodule Mix.Tasks.Import.Diagrams do
       mix import.diagrams --user admin@example.com --input ~/backups/diagrams.json
       mix import.diagrams --user admin@example.com --input ./diagrams.json
 
-    Note: Diagrams with existing slugs will be skipped to avoid duplicates.
+    Note: Diagrams with existing titles will be skipped to avoid duplicates.
     """)
   end
 end

@@ -87,7 +87,6 @@ defmodule DiagramForgeWeb.AuthController do
     # Create diagram attrs
     diagram_attrs = %{
       title: atomized_attrs.title,
-      slug: atomized_attrs.slug,
       diagram_source: atomized_attrs.diagram_source,
       summary: atomized_attrs.summary,
       notes_md: atomized_attrs.notes_md,
@@ -115,7 +114,6 @@ defmodule DiagramForgeWeb.AuthController do
   defp atomize_diagram_keys(attrs) when is_map(attrs) do
     %{
       title: attrs["title"],
-      slug: attrs["slug"],
       diagram_source: attrs["diagram_source"],
       summary: attrs["summary"],
       notes_md: attrs["notes_md"],

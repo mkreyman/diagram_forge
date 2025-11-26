@@ -52,7 +52,6 @@ defmodule DiagramForge.Fixtures do
     document = attrs[:document]
 
     base_attrs = %{
-      slug: "test-diagram-#{System.unique_integer([:positive])}",
       title: "Test Diagram #{System.unique_integer([:positive])}",
       tags: ["test"],
       format: :mermaid,

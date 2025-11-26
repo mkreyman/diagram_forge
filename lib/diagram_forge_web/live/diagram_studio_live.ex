@@ -716,7 +716,6 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         # Extract diagram attributes for session storage
         attrs = %{
           title: diagram.title,
-          slug: diagram.slug,
           diagram_source: diagram.diagram_source,
           summary: diagram.summary,
           notes_md: diagram.notes_md,
@@ -741,7 +740,6 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         # Extract diagram attributes
         attrs = %{
           title: diagram.title,
-          slug: diagram.slug,
           diagram_source: diagram.diagram_source,
           summary: diagram.summary,
           notes_md: diagram.notes_md,
@@ -802,6 +800,20 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
   @impl true
   def handle_event("cancel_upload", %{"ref" => ref}, socket) do
     {:noreply, cancel_upload(socket, :document, ref)}
+  end
+
+  @impl true
+  def handle_event("cancel_processing", %{"doc-id" => doc_id}, socket) do
+    case Diagrams.cancel_document_processing(doc_id) do
+      {:ok, _document} ->
+        {:noreply,
+         socket
+         |> assign(:documents, list_documents())
+         |> put_flash(:info, "Document processing cancelled")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to cancel processing")}
+    end
   end
 
   defp process_uploaded_entry(path, entry, user_id) do
@@ -1314,71 +1326,118 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
           <%!-- Left Sidebar --%>
           <div class="lg:col-span-1 flex flex-col gap-3">
             <%!-- Upload Zone (compact when no documents) --%>
-            <form phx-change="validate" phx-submit="save" id="upload-form">
-              <div
-                class="border-2 border-dashed border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-600 transition bg-slate-900/50"
-                phx-drop-target={@uploads.document.ref}
-              >
-                <.live_file_input upload={@uploads.document} class="hidden" />
-                <label for={@uploads.document.ref} class="cursor-pointer">
-                  <div class="text-slate-400">
-                    <div class="flex items-center justify-center gap-2 mb-1">
-                      <.icon name="hero-arrow-up-tray" class="w-4 h-4" />
-                      <span class="text-xs font-medium">Upload a document</span>
-                    </div>
-                    <p class="text-xs text-slate-500">
-                      PDF, Markdown, or Text (max 2MB)
-                    </p>
-                  </div>
-                </label>
-              </div>
-
-              <%!-- Show selected files --%>
-              <%= for entry <- @uploads.document.entries do %>
-                <div class="mt-2 p-2 bg-slate-800 rounded">
-                  <div class="flex items-center justify-between text-xs text-slate-300">
-                    <span class="truncate">{entry.client_name}</span>
-                    <button
-                      type="button"
-                      phx-click="cancel_upload"
-                      phx-value-ref={entry.ref}
-                      class="text-red-400 hover:text-red-300"
-                      aria-label="Cancel upload"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <%!-- Progress bar during upload --%>
-                  <%= if entry.progress > 0 and entry.progress < 100 do %>
-                    <div class="w-full bg-slate-700 rounded-full h-1.5 mt-1">
-                      <div
-                        class="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
-                        style={"width: #{entry.progress}%"}
-                      >
+            <%= if @current_user do %>
+              <form phx-change="validate" phx-submit="save" id="upload-form">
+                <div
+                  class="border-2 border-dashed border-slate-700 rounded-lg p-3 text-center cursor-pointer hover:border-slate-600 transition bg-slate-900/50"
+                  phx-drop-target={@uploads.document.ref}
+                >
+                  <.live_file_input upload={@uploads.document} class="hidden" />
+                  <label for={@uploads.document.ref} class="cursor-pointer">
+                    <div class="text-slate-400">
+                      <div class="flex items-center justify-center gap-2 mb-1">
+                        <.icon name="hero-arrow-up-tray" class="w-4 h-4" />
+                        <span class="text-xs font-medium">Upload a document</span>
                       </div>
+                      <p class="text-xs text-slate-500">
+                        PDF, Markdown, or Text (max 2MB)
+                      </p>
                     </div>
-                  <% end %>
+                  </label>
                 </div>
-                <%= for err <- upload_errors(@uploads.document, entry) do %>
+
+                <%!-- Show selected files --%>
+                <%= for entry <- @uploads.document.entries do %>
+                  <div class="mt-2 p-2 bg-slate-800 rounded">
+                    <div class="flex items-center justify-between text-xs text-slate-300">
+                      <span class="truncate">{entry.client_name}</span>
+                      <button
+                        type="button"
+                        phx-click="cancel_upload"
+                        phx-value-ref={entry.ref}
+                        class="text-red-400 hover:text-red-300"
+                        aria-label="Cancel upload"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <%!-- Progress bar during upload --%>
+                    <%= if entry.progress > 0 and entry.progress < 100 do %>
+                      <div class="w-full bg-slate-700 rounded-full h-1.5 mt-1">
+                        <div
+                          class="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
+                          style={"width: #{entry.progress}%"}
+                        >
+                        </div>
+                      </div>
+                    <% end %>
+                  </div>
+                  <%= for err <- upload_errors(@uploads.document, entry) do %>
+                    <p class="text-xs text-red-400 mt-1">{upload_error_to_string(err)}</p>
+                  <% end %>
+                <% end %>
+
+                <%= for err <- upload_errors(@uploads.document) do %>
                   <p class="text-xs text-red-400 mt-1">{upload_error_to_string(err)}</p>
                 <% end %>
-              <% end %>
 
-              <%= for err <- upload_errors(@uploads.document) do %>
-                <p class="text-xs text-red-400 mt-1">{upload_error_to_string(err)}</p>
-              <% end %>
-
-              <%!-- Upload button with immediate loading feedback --%>
-              <%= if @uploads.document.entries != [] do %>
-                <button
-                  type="submit"
-                  phx-disable-with="Uploading..."
-                  class="w-full mt-2 px-3 py-2 text-sm rounded transition bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  <.icon name="hero-arrow-up-tray" class="w-4 h-4" /> Upload
-                </button>
-              <% end %>
-            </form>
+                <%!-- Upload button with immediate loading feedback --%>
+                <%= if @uploads.document.entries != [] do %>
+                  <button
+                    type="submit"
+                    disabled={@uploading}
+                    class="w-full mt-2 px-3 py-2 text-sm rounded transition bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    <%= if @uploading do %>
+                      <svg
+                        class="animate-spin w-4 h-4"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                      >
+                        <circle
+                          class="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          stroke-width="4"
+                        >
+                        </circle>
+                        <path
+                          class="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                        >
+                        </path>
+                      </svg>
+                      Uploading...
+                    <% else %>
+                      <.icon name="hero-arrow-up-tray" class="w-4 h-4" /> Upload
+                    <% end %>
+                  </button>
+                <% end %>
+              </form>
+            <% else %>
+              <%!-- Login prompt for document upload --%>
+              <div class="border-2 border-dashed border-slate-700 rounded-lg p-3 text-center bg-slate-900/50">
+                <div class="text-slate-400">
+                  <div class="flex items-center justify-center gap-2 mb-1">
+                    <.icon name="hero-arrow-up-tray" class="w-4 h-4" />
+                    <span class="text-xs font-medium">Upload a document</span>
+                  </div>
+                  <p class="text-xs text-slate-500 mb-2">
+                    PDF, Markdown, or Text (max 2MB)
+                  </p>
+                  <.link
+                    href={~p"/auth/github"}
+                    class="text-xs text-blue-400 hover:text-blue-300 underline"
+                  >
+                    Sign in to upload documents
+                  </.link>
+                </div>
+              </div>
+            <% end %>
 
             <%!-- Documents Section (only shown when documents exist) --%>
             <%= if @documents != [] do %>
@@ -1402,16 +1461,27 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
                       </div>
                       <%= if doc.status == :processing do %>
                         <% progress = Map.get(@document_progress, doc.id) %>
-                        <%= if progress do %>
-                          <% {current, total} = progress %>
-                          <div class="text-xs text-yellow-400 mt-1">
-                            Generating diagram {current}/{total}
-                          </div>
-                        <% else %>
-                          <div class="text-xs text-slate-400 mt-1">
-                            Extracting text...
-                          </div>
-                        <% end %>
+                        <div class="flex items-center justify-between mt-1">
+                          <%= if progress do %>
+                            <% {current, total} = progress %>
+                            <span class="text-xs text-yellow-400">
+                              Generating diagram {current}/{total}
+                            </span>
+                          <% else %>
+                            <span class="text-xs text-slate-400">
+                              Extracting text...
+                            </span>
+                          <% end %>
+                          <button
+                            type="button"
+                            phx-click="cancel_processing"
+                            phx-value-doc-id={doc.id}
+                            class="text-xs text-red-400 hover:text-red-300 hover:underline"
+                            title="Cancel processing"
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       <% end %>
                       <%= if doc.status == :error and doc.error_message do %>
                         <div class="text-xs text-red-400 mt-1">

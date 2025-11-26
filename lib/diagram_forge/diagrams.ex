@@ -74,6 +74,49 @@ defmodule DiagramForge.Diagrams do
   end
 
   @doc """
+  Cancels document processing by cancelling any pending Oban jobs and marking
+  the document as error with a cancelled message.
+
+  ## Examples
+
+      iex> cancel_document_processing(document_id)
+      {:ok, %Document{}}
+
+  """
+  def cancel_document_processing(document_id) do
+    document = get_document!(document_id)
+
+    # Cancel any pending/scheduled Oban jobs for this document
+    cancel_oban_jobs_for_document(document_id)
+
+    # Mark document as cancelled (using error status)
+    update_document(document, %{
+      status: :error,
+      error_message: "Cancelled by user",
+      completed_at: DateTime.utc_now() |> DateTime.truncate(:second)
+    })
+  end
+
+  defp cancel_oban_jobs_for_document(document_id) do
+    import Ecto.Query
+
+    # Find all jobs for this document that are available or scheduled
+    jobs =
+      Oban.Job
+      |> where([j], j.queue == "documents")
+      |> where([j], j.state in ["available", "scheduled"])
+      |> where([j], fragment("?->>'document_id' = ?", j.args, ^to_string(document_id)))
+      |> Repo.all()
+
+    # Cancel each job
+    Enum.each(jobs, fn job ->
+      Oban.cancel_job(job.id)
+    end)
+
+    length(jobs)
+  end
+
+  @doc """
   Creates a document for a user.
 
   ## Examples
@@ -278,15 +321,6 @@ defmodule DiagramForge.Diagrams do
   end
 
   @doc """
-  Gets a diagram by slug.
-  """
-  def get_diagram_by_slug(slug) do
-    Diagram
-    |> Repo.get_by(slug: slug)
-    |> Repo.preload(:document)
-  end
-
-  @doc """
   Saves a generated diagram to the database.
 
   Takes an unsaved diagram struct (typically from `generate_diagram_from_prompt/2`)
@@ -313,33 +347,18 @@ defmodule DiagramForge.Diagrams do
   def create_diagram_for_user(attrs, user_id) do
     result =
       Repo.transaction(fn ->
-        attrs
-        |> insert_diagram_with_slug_retry()
-        |> handle_diagram_insert(attrs, user_id)
+        diagram_changeset = Diagram.changeset(%Diagram{}, attrs)
+
+        case Repo.insert(diagram_changeset) do
+          {:ok, diagram} ->
+            create_user_diagram_entry(diagram, user_id)
+
+          {:error, changeset} ->
+            Repo.rollback(changeset)
+        end
       end)
 
     broadcast_if_created(result)
-  end
-
-  defp insert_diagram_with_slug_retry(attrs) do
-    diagram_changeset = Diagram.changeset(%Diagram{}, attrs)
-    Repo.insert(diagram_changeset)
-  end
-
-  defp handle_diagram_insert({:ok, diagram}, _attrs, user_id) do
-    create_user_diagram_entry(diagram, user_id)
-  end
-
-  defp handle_diagram_insert(
-         {:error, %Ecto.Changeset{errors: errors} = changeset},
-         attrs,
-         user_id
-       ) do
-    if slug_taken?(errors) do
-      retry_with_unique_slug(attrs, user_id)
-    else
-      Repo.rollback(changeset)
-    end
   end
 
   defp broadcast_if_created({:ok, diagram}) do
@@ -353,32 +372,6 @@ defmodule DiagramForge.Diagrams do
   end
 
   defp broadcast_if_created(error), do: error
-
-  defp slug_taken?(errors) do
-    Enum.any?(errors, fn
-      {:slug, {_, opts}} when is_list(opts) ->
-        Keyword.get(opts, :constraint) == :unique
-
-      _ ->
-        false
-    end)
-  end
-
-  defp retry_with_unique_slug(attrs, user_id) do
-    original_slug = attrs[:slug] || attrs["slug"]
-    unique_slug = generate_unique_slug(original_slug)
-    updated_attrs = Map.put(attrs, :slug, unique_slug)
-
-    diagram_changeset = Diagram.changeset(%Diagram{}, updated_attrs)
-
-    case Repo.insert(diagram_changeset) do
-      {:ok, diagram} ->
-        create_user_diagram_entry(diagram, user_id)
-
-      {:error, changeset} ->
-        Repo.rollback(changeset)
-    end
-  end
 
   defp create_user_diagram_entry(diagram, user_id) do
     user_diagram_changeset =
@@ -848,7 +841,6 @@ defmodule DiagramForge.Diagrams do
         notes_md: original.notes_md,
         tags: original.tags,
         format: original.format,
-        slug: generate_unique_slug(original.slug),
         visibility: :unlisted,
         forked_from_id: original.id
       }
@@ -905,12 +897,6 @@ defmodule DiagramForge.Diagrams do
       })
 
     Repo.insert(user_diagram_changeset)
-  end
-
-  defp generate_unique_slug(original_slug) do
-    # Add random suffix to ensure uniqueness
-    suffix = :crypto.strong_rand_bytes(4) |> Base.encode16(case: :lower)
-    "#{original_slug}-#{suffix}"
   end
 
   # User Preferences

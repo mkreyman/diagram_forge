@@ -15,7 +15,6 @@ defmodule DiagramForgeWeb.AuthControllerTest do
     test "stores pending diagram in session when pending_diagram param is provided", %{conn: conn} do
       pending_diagram = %{
         "title" => "Test Diagram",
-        "slug" => "test-diagram",
         "diagram_source" => "flowchart TD\n  A --> B",
         "summary" => "Test summary",
         "notes_md" => "Test notes",
@@ -166,7 +165,6 @@ defmodule DiagramForgeWeb.AuthControllerTest do
       # Set up pending diagram save in session with string keys (as it comes from JSON.decode)
       pending_diagram = %{
         "title" => "Test Diagram",
-        "slug" => "test-diagram",
         "diagram_source" => "graph TD\nA-->B",
         "summary" => "A test diagram",
         "notes_md" => "# Notes\n\nTest notes",
@@ -194,7 +192,6 @@ defmodule DiagramForgeWeb.AuthControllerTest do
       assert length(diagrams) == 1
       diagram = hd(diagrams)
       assert diagram.title == "Test Diagram"
-      assert diagram.slug == "test-diagram"
       assert diagram.diagram_source == "graph TD\nA-->B"
       assert diagram.summary == "A test diagram"
       assert diagram.notes_md == "# Notes\n\nTest notes"
