@@ -73,6 +73,9 @@ const Mermaid = {
     // Store reference to hook for use in async callbacks
     const hook = this
 
+    // Extract source hash from element ID (format: mermaid-preview-HASH)
+    const sourceHash = parseInt(this.el.id.split('-').pop(), 10) || null
+
     // Get theme from data attribute
     const theme = this.el.dataset.theme || "light"
     const mermaidTheme = theme === "dark" ? "dark" : "default"
@@ -91,7 +94,8 @@ const Mermaid = {
       const { svg } = await mermaid.render(diagramId, diagramCode)
       container.innerHTML = svg
       // Clear any previous error state - use stored hook reference
-      hook.pushEvent("mermaid_render_success", {})
+      // Include sourceHash so server can match this to the expected fix
+      hook.pushEvent("mermaid_render_success", { sourceHash })
     } catch (err) {
       // Extract useful error information
       const errorInfo = {
@@ -100,7 +104,9 @@ const Mermaid = {
         line: err.hash?.line,
         expected: err.hash?.expected ? err.hash.expected.join(", ") : null,
         // Get the mermaid version for context
-        mermaidVersion: mermaid.version || "unknown"
+        mermaidVersion: mermaid.version || "unknown",
+        // Include sourceHash so server can match this to the expected fix
+        sourceHash
       }
 
       // Send error to server for AI context - use stored hook reference

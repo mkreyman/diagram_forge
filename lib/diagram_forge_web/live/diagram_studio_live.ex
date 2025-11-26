@@ -58,6 +58,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
       |> assign(:diagram_theme, "dark")
       |> assign(:mermaid_error, nil)
       |> assign(:awaiting_fix_result, false)
+      |> assign(:fix_expected_hash, nil)
       |> assign(:show_save_filter_modal, false)
       |> assign(:editing_filter, nil)
       |> assign(:editing_diagram, nil)
@@ -111,6 +112,10 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
             socket
             |> assign(:selected_diagram, diagram)
             |> assign(:generated_diagram, nil)
+            # Reset fix-related state when selecting a new diagram
+            |> assign(:awaiting_fix_result, false)
+            |> assign(:fix_expected_hash, nil)
+            |> assign(:mermaid_error, nil)
           else
             socket
             |> put_flash(:error, "You don't have permission to view this diagram")
@@ -503,11 +508,18 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
 
     socket = assign(socket, :mermaid_error, error_info)
 
-    # If we were waiting for fix result, show failure message
+    # Only show flash if this is the diagram we're waiting for (hash matches)
+    # Normalize both to integers for comparison (JS might send as int or string)
+    source_hash = normalize_hash(params["sourceHash"])
+    expected_hash = socket.assigns.fix_expected_hash
+    awaiting = socket.assigns.awaiting_fix_result
+    hashes_match = source_hash != nil && source_hash == expected_hash
+
     socket =
-      if socket.assigns.awaiting_fix_result do
+      if awaiting && hashes_match do
         socket
         |> assign(:awaiting_fix_result, false)
+        |> assign(:fix_expected_hash, nil)
         |> put_flash(:error, "Unable to fix automatically. Try editing the diagram manually.")
       else
         socket
@@ -517,14 +529,20 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
   end
 
   @impl true
-  def handle_event("mermaid_render_success", _params, socket) do
+  def handle_event("mermaid_render_success", params, socket) do
     socket = assign(socket, :mermaid_error, nil)
 
-    # If we were waiting for fix result, show success message
+    # Only show flash if this is the diagram we're waiting for (hash matches)
+    # Normalize both to integers for comparison (JS might send as int or string)
+    source_hash = normalize_hash(params["sourceHash"])
+    expected_hash = socket.assigns.fix_expected_hash
+    hashes_match = source_hash != nil && source_hash == expected_hash
+
     socket =
-      if socket.assigns.awaiting_fix_result do
+      if socket.assigns.awaiting_fix_result && hashes_match do
         socket
         |> assign(:awaiting_fix_result, false)
+        |> assign(:fix_expected_hash, nil)
         |> put_flash(:info, "Syntax fixed successfully!")
       else
         socket
@@ -879,10 +897,14 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         case Diagrams.update_diagram(diagram, %{diagram_source: fixed_source}, user_id) do
           {:ok, updated_diagram} ->
             # Don't show success flash yet - wait for Mermaid render confirmation
+            # Track the hash of fixed source so we only respond to events for THIS fix
+            expected_hash = :erlang.phash2(fixed_source)
+
             {:noreply,
              socket
              |> assign(:fixing_syntax, false)
              |> assign(:awaiting_fix_result, true)
+             |> assign(:fix_expected_hash, expected_hash)
              |> assign(:selected_diagram, updated_diagram)}
 
           {:error, _reason} ->
@@ -917,10 +939,14 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
         updated_diagram = %{diagram | diagram_source: fixed_source}
 
         # Don't show success flash yet - wait for Mermaid render confirmation
+        # Track the hash of fixed source so we only respond to events for THIS fix
+        expected_hash = :erlang.phash2(fixed_source)
+
         {:noreply,
          socket
          |> assign(:fixing_syntax, false)
          |> assign(:awaiting_fix_result, true)
+         |> assign(:fix_expected_hash, expected_hash)
          |> assign(:selected_diagram, updated_diagram)
          |> assign(:generated_diagram, updated_diagram)}
 
@@ -939,6 +965,12 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
   end
 
   # Private helper functions
+
+  # Normalize hash to integer (JS might send as int or string)
+  defp normalize_hash(nil), do: nil
+  defp normalize_hash(hash) when is_integer(hash), do: hash
+  defp normalize_hash(hash) when is_binary(hash), do: String.to_integer(hash)
+  defp normalize_hash(_), do: nil
 
   # Helper to build URL with filter and pagination params
   defp push_filter_url(socket, tags, page, page_size, public_page \\ 1) do
