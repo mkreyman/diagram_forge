@@ -51,10 +51,17 @@ function cleanupOrphanedMermaidElements() {
 const Mermaid = {
   mounted() {
     cleanupOrphanedMermaidElements()
+    this.lastRenderedCode = null
+    this.lastErrorCode = null
     this.renderDiagram()
   },
   updated() {
     cleanupOrphanedMermaidElements()
+    // Only re-render if the diagram code actually changed
+    const diagramCode = this.el.dataset.diagram
+    if (diagramCode === this.lastRenderedCode || diagramCode === this.lastErrorCode) {
+      return // Skip re-render - same code as before
+    }
     this.renderDiagram()
   },
   async renderDiagram() {
@@ -69,6 +76,9 @@ const Mermaid = {
       console.warn("Mermaid hook: no diagram code in data-diagram attribute")
       return
     }
+
+    // Track that we're rendering this code
+    this.lastErrorCode = null // Clear previous error state
 
     // Store reference to hook for use in async callbacks
     const hook = this
@@ -93,6 +103,9 @@ const Mermaid = {
     try {
       const { svg } = await mermaid.render(diagramId, diagramCode)
       container.innerHTML = svg
+      // Track successful render to avoid re-rendering same code
+      this.lastRenderedCode = diagramCode
+      this.lastErrorCode = null
       // Clear any previous error state - use stored hook reference
       // Include sourceHash so server can match this to the expected fix
       hook.pushEvent("mermaid_render_success", { sourceHash })
@@ -108,6 +121,10 @@ const Mermaid = {
         // Include sourceHash so server can match this to the expected fix
         sourceHash
       }
+
+      // Track error to avoid re-rendering same broken code
+      this.lastErrorCode = diagramCode
+      this.lastRenderedCode = null
 
       // Send error to server for AI context - use stored hook reference
       try {

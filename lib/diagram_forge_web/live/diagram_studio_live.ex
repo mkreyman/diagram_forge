@@ -506,7 +506,15 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
       mermaid_version: params["mermaidVersion"]
     }
 
-    socket = assign(socket, :mermaid_error, error_info)
+    # Only update if error is different to avoid triggering re-render loop
+    current_error = socket.assigns[:mermaid_error]
+
+    socket =
+      if current_error == error_info do
+        socket
+      else
+        assign(socket, :mermaid_error, error_info)
+      end
 
     # Only show flash if this is the diagram we're waiting for (hash matches)
     # Normalize both to integers for comparison (JS might send as int or string)
