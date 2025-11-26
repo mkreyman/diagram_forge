@@ -7,6 +7,7 @@ defmodule DiagramForge.Diagrams.DiagramGenerator do
   alias DiagramForge.AI.Options
   alias DiagramForge.AI.Prompts
   alias DiagramForge.Diagrams.Diagram
+  alias DiagramForge.Diagrams.MermaidSanitizer
 
   @doc """
   Generates a diagram from a free-form text prompt.
@@ -41,12 +42,15 @@ defmodule DiagramForge.Diagrams.DiagramGenerator do
       )
       |> Jason.decode!()
 
+    # Sanitize the generated Mermaid code to fix common syntax issues
+    sanitized_mermaid = sanitize_mermaid(json["mermaid"])
+
     attrs = %{
       title: json["title"],
       slug: slugify(json["title"]),
       tags: json["tags"] || [],
       format: :mermaid,
-      diagram_source: json["mermaid"],
+      diagram_source: sanitized_mermaid,
       summary: json["summary"],
       notes_md: json["notes_md"]
     }
@@ -68,6 +72,16 @@ defmodule DiagramForge.Diagrams.DiagramGenerator do
     |> String.downcase()
     |> String.replace(~r/[^a-z0-9]+/, "-")
     |> String.trim("-")
+  end
+
+  # Sanitize Mermaid code to fix common syntax issues before persisting
+  defp sanitize_mermaid(nil), do: nil
+
+  defp sanitize_mermaid(mermaid) do
+    case MermaidSanitizer.sanitize(mermaid) do
+      {:ok, sanitized} -> sanitized
+      {:unchanged, original} -> original
+    end
   end
 
   defp ai_client do

@@ -401,10 +401,12 @@ defmodule DiagramForge.Diagrams do
   end
 
   @doc """
-  Attempts to fix Mermaid syntax errors in a diagram using AI.
+  Attempts to fix Mermaid syntax errors in a diagram.
 
-  Takes a diagram with broken Mermaid syntax and returns {:ok, fixed_source}
-  or {:error, reason} on failure.
+  First tries programmatic sanitization for common issues (fast, free, deterministic).
+  If no changes are made, falls back to AI-based fixing with retries.
+
+  Returns {:ok, fixed_source}, {:unchanged, source}, or {:error, reason}.
 
   ## Options
 
@@ -412,17 +414,17 @@ defmodule DiagramForge.Diagrams do
     * `:user_id` - User ID for usage tracking (required unless track_usage: false)
     * `:operation` - Operation type for usage tracking (defaults to "syntax_fix")
     * `:track_usage` - Whether to track token usage (default: true)
+    * `:skip_sanitizer` - Skip programmatic sanitizer, go straight to AI (default: false)
 
   ## Raises
 
   Raises `ArgumentError` if `:user_id` is missing when usage tracking is enabled.
   """
   def fix_diagram_syntax(%Diagram{} = diagram, opts \\ []) do
-    max_retries = Keyword.get(opts, :max_retries, 3)
-    do_fix_diagram_syntax(diagram.diagram_source, diagram.summary, opts, max_retries)
+    fix_diagram_syntax_source(diagram.diagram_source, diagram.summary, opts)
   end
 
-  defp do_fix_diagram_syntax(original_source, summary, opts, retries_left) do
+  defp do_fix_diagram_syntax_with_ai(original_source, summary, opts, retries_left) do
     alias DiagramForge.AI.Client
     alias DiagramForge.AI.Prompts
 
@@ -447,7 +449,7 @@ defmodule DiagramForge.Diagrams do
           # If the AI returned unchanged code, retry or report unchanged
           if normalize_whitespace(fixed_mermaid) == normalize_whitespace(original_source) do
             if retries_left > 0 do
-              do_fix_diagram_syntax(original_source, summary, opts, retries_left - 1)
+              do_fix_diagram_syntax_with_ai(original_source, summary, opts, retries_left - 1)
             else
               # All retries exhausted, AI couldn't fix it
               {:unchanged, original_source}
@@ -471,7 +473,10 @@ defmodule DiagramForge.Diagrams do
   end
 
   @doc """
-  Attempts to fix Mermaid syntax errors using AI, working directly with source code.
+  Attempts to fix Mermaid syntax errors, working directly with source code.
+
+  First tries programmatic sanitization for common issues (fast, free, deterministic).
+  If no changes are made, falls back to AI-based fixing with retries.
 
   This is useful for fixing unsaved/generated diagrams that don't have an ID yet.
 
@@ -481,14 +486,28 @@ defmodule DiagramForge.Diagrams do
     * `:user_id` - User ID for usage tracking (required unless track_usage: false)
     * `:operation` - Operation type for usage tracking (defaults to "syntax_fix")
     * `:track_usage` - Whether to track token usage (default: true)
+    * `:skip_sanitizer` - Skip programmatic sanitizer, go straight to AI (default: false)
 
   ## Raises
 
   Raises `ArgumentError` if `:user_id` is missing when usage tracking is enabled.
   """
   def fix_diagram_syntax_source(diagram_source, summary, opts \\ []) do
-    max_retries = Keyword.get(opts, :max_retries, 3)
-    do_fix_diagram_syntax(diagram_source, summary, opts, max_retries)
+    alias DiagramForge.Diagrams.MermaidSanitizer
+
+    skip_sanitizer = Keyword.get(opts, :skip_sanitizer, false)
+
+    # Step 1: Try programmatic sanitization first (fast, free, deterministic)
+    case {skip_sanitizer, MermaidSanitizer.sanitize(diagram_source)} do
+      {false, {:ok, sanitized}} ->
+        # Programmatic fix worked!
+        {:ok, sanitized}
+
+      _ ->
+        # No programmatic fix available, try AI
+        max_retries = Keyword.get(opts, :max_retries, 3)
+        do_fix_diagram_syntax_with_ai(diagram_source, summary, opts, max_retries)
+    end
   end
 
   # Tag Management Functions
