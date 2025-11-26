@@ -57,6 +57,7 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
       |> assign(:fixing_syntax, false)
       |> assign(:diagram_theme, "dark")
       |> assign(:mermaid_error, nil)
+      |> assign(:awaiting_fix_result, false)
       |> assign(:show_save_filter_modal, false)
       |> assign(:editing_filter, nil)
       |> assign(:editing_diagram, nil)
@@ -500,12 +501,36 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
       mermaid_version: params["mermaidVersion"]
     }
 
-    {:noreply, assign(socket, :mermaid_error, error_info)}
+    socket = assign(socket, :mermaid_error, error_info)
+
+    # If we were waiting for fix result, show failure message
+    socket =
+      if socket.assigns.awaiting_fix_result do
+        socket
+        |> assign(:awaiting_fix_result, false)
+        |> put_flash(:error, "Unable to fix automatically. Try editing the diagram manually.")
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   @impl true
   def handle_event("mermaid_render_success", _params, socket) do
-    {:noreply, assign(socket, :mermaid_error, nil)}
+    socket = assign(socket, :mermaid_error, nil)
+
+    # If we were waiting for fix result, show success message
+    socket =
+      if socket.assigns.awaiting_fix_result do
+        socket
+        |> assign(:awaiting_fix_result, false)
+        |> put_flash(:info, "Syntax fixed successfully!")
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -853,11 +878,12 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
       {:ok, fixed_source} ->
         case Diagrams.update_diagram(diagram, %{diagram_source: fixed_source}, user_id) do
           {:ok, updated_diagram} ->
+            # Don't show success flash yet - wait for Mermaid render confirmation
             {:noreply,
              socket
              |> assign(:fixing_syntax, false)
-             |> assign(:selected_diagram, updated_diagram)
-             |> put_flash(:info, "Syntax fixed successfully!")}
+             |> assign(:awaiting_fix_result, true)
+             |> assign(:selected_diagram, updated_diagram)}
 
           {:error, _reason} ->
             {:noreply,
@@ -890,12 +916,13 @@ defmodule DiagramForgeWeb.DiagramStudioLive do
       {:ok, fixed_source} ->
         updated_diagram = %{diagram | diagram_source: fixed_source}
 
+        # Don't show success flash yet - wait for Mermaid render confirmation
         {:noreply,
          socket
          |> assign(:fixing_syntax, false)
+         |> assign(:awaiting_fix_result, true)
          |> assign(:selected_diagram, updated_diagram)
-         |> assign(:generated_diagram, updated_diagram)
-         |> put_flash(:info, "Syntax fixed! Review and save the diagram.")}
+         |> assign(:generated_diagram, updated_diagram)}
 
       {:unchanged, _source} ->
         {:noreply,
