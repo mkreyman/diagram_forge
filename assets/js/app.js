@@ -51,17 +51,13 @@ function cleanupOrphanedMermaidElements() {
 const Mermaid = {
   mounted() {
     cleanupOrphanedMermaidElements()
-    this.lastRenderedCode = null
-    this.lastErrorCode = null
+    this.lastPushedErrorCode = null  // Track which code we already pushed error for
+    this.lastPushedSuccessCode = null  // Track which code we already pushed success for
     this.renderDiagram()
   },
   updated() {
     cleanupOrphanedMermaidElements()
-    // Only re-render if the diagram code actually changed
-    const diagramCode = this.el.dataset.diagram
-    if (diagramCode === this.lastRenderedCode || diagramCode === this.lastErrorCode) {
-      return // Skip re-render - same code as before
-    }
+    // Always re-render since LiveView may have replaced our innerHTML
     this.renderDiagram()
   },
   async renderDiagram() {
@@ -76,9 +72,6 @@ const Mermaid = {
       console.warn("Mermaid hook: no diagram code in data-diagram attribute")
       return
     }
-
-    // Track that we're rendering this code
-    this.lastErrorCode = null // Clear previous error state
 
     // Store reference to hook for use in async callbacks
     const hook = this
@@ -103,36 +96,14 @@ const Mermaid = {
     try {
       const { svg } = await mermaid.render(diagramId, diagramCode)
       container.innerHTML = svg
-      // Track successful render to avoid re-rendering same code
-      this.lastRenderedCode = diagramCode
-      this.lastErrorCode = null
-      // Clear any previous error state - use stored hook reference
-      // Include sourceHash so server can match this to the expected fix
-      hook.pushEvent("mermaid_render_success", { sourceHash })
+
+      // Only push success event once per diagram code to avoid spam
+      if (this.lastPushedSuccessCode !== diagramCode) {
+        this.lastPushedSuccessCode = diagramCode
+        this.lastPushedErrorCode = null
+        hook.pushEvent("mermaid_render_success", { sourceHash })
+      }
     } catch (err) {
-      // Extract useful error information
-      const errorInfo = {
-        message: err.message || String(err),
-        // Mermaid includes hash with parsing details
-        line: err.hash?.line,
-        expected: err.hash?.expected ? err.hash.expected.join(", ") : null,
-        // Get the mermaid version for context
-        mermaidVersion: mermaid.version || "unknown",
-        // Include sourceHash so server can match this to the expected fix
-        sourceHash
-      }
-
-      // Track error to avoid re-rendering same broken code
-      this.lastErrorCode = diagramCode
-      this.lastRenderedCode = null
-
-      // Send error to server for AI context - use stored hook reference
-      try {
-        hook.pushEvent("mermaid_render_error", errorInfo)
-      } catch (pushErr) {
-        console.error("Failed to push mermaid_render_error event:", pushErr)
-      }
-
       // Display error in container
       container.innerHTML = `
         <div class="text-red-400 p-4 border border-red-700 rounded bg-red-950/50">
@@ -140,6 +111,26 @@ const Mermaid = {
           <p class="text-xs font-mono break-all">${err.message || "Unknown error"}</p>
         </div>
       `
+
+      // Only push error event once per diagram code to avoid spam
+      if (this.lastPushedErrorCode !== diagramCode) {
+        this.lastPushedErrorCode = diagramCode
+        this.lastPushedSuccessCode = null
+
+        const errorInfo = {
+          message: err.message || String(err),
+          line: err.hash?.line,
+          expected: err.hash?.expected ? err.hash.expected.join(", ") : null,
+          mermaidVersion: mermaid.version || "unknown",
+          sourceHash
+        }
+
+        try {
+          hook.pushEvent("mermaid_render_error", errorInfo)
+        } catch (pushErr) {
+          console.error("Failed to push mermaid_render_error event:", pushErr)
+        }
+      }
     } finally {
       // Clean up orphaned Mermaid error elements that render() leaves behind
       // Mermaid inserts error SVGs with the diagram ID into the document body
