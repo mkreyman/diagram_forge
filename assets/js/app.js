@@ -38,12 +38,23 @@ mermaid.initialize({
   securityLevel: "loose"
 })
 
+// Clean up orphaned Mermaid elements from document body
+// Mermaid render() inserts SVGs into body when errors occur
+function cleanupOrphanedMermaidElements() {
+  // Remove any SVGs with mermaid- prefix IDs that are direct children of body
+  document.querySelectorAll('body > svg[id^="mermaid-"]').forEach(el => el.remove())
+  // Remove any standalone Mermaid error elements
+  document.querySelectorAll('body > .mermaid-error, body > [id^="dmermaid-"]').forEach(el => el.remove())
+}
+
 // Mermaid LiveView Hook
 const Mermaid = {
   mounted() {
+    cleanupOrphanedMermaidElements()
     this.renderDiagram()
   },
   updated() {
+    cleanupOrphanedMermaidElements()
     this.renderDiagram()
   },
   async renderDiagram() {
@@ -93,6 +104,19 @@ const Mermaid = {
           <p class="text-xs font-mono break-all">${err.message || "Unknown error"}</p>
         </div>
       `
+    } finally {
+      // Clean up orphaned Mermaid error elements that render() leaves behind
+      // Mermaid inserts error SVGs with the diagram ID into the document body
+      const orphanedSvg = document.getElementById(diagramId)
+      if (orphanedSvg && orphanedSvg.parentNode !== container) {
+        orphanedSvg.remove()
+      }
+      // Also clean up any Mermaid error containers (class varies by version)
+      document.querySelectorAll(`#d${diagramId}, .mermaid-error`).forEach(el => {
+        if (el.parentNode !== container) {
+          el.remove()
+        }
+      })
     }
   }
 }
