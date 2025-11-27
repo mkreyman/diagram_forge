@@ -108,18 +108,12 @@ config :ueberauth, Ueberauth,
     github: {Ueberauth.Strategy.Github, [default_scope: "user:email"]}
   ]
 
-config :ueberauth, Ueberauth.Strategy.Github.OAuth,
-  client_id: System.get_env("GITHUB_CLIENT_ID"),
-  client_secret: System.get_env("GITHUB_CLIENT_SECRET")
+# Note: GitHub OAuth credentials are configured in runtime.exs for production
+# to ensure secrets are available at runtime, not compile time.
+# For development, set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET env vars.
 
-# Configure Cloak for encryption
-config :diagram_forge, DiagramForge.Vault,
-  ciphers: [
-    default: {
-      Cloak.Ciphers.AES.GCM,
-      tag: "AES.GCM.V1", key: Base.decode64!(System.get_env("CLOAK_KEY") || ""), iv_length: 12
-    }
-  ]
+# Note: Cloak encryption key is configured in runtime.exs for production.
+# For development, set CLOAK_KEY env var.
 
 # Configure content moderation
 config :diagram_forge, DiagramForge.Content, moderation_enabled: true

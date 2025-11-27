@@ -77,3 +77,8 @@ config :diagram_forge, DiagramForge.Content.Moderator, enabled: false
 config :diagram_forge, DiagramForge.Content.InjectionDetector,
   enabled: true,
   action: :flag_for_review
+
+# Configure GitHub OAuth for tests with dummy values
+config :ueberauth, Ueberauth.Strategy.Github.OAuth,
+  client_id: "test_client_id",
+  client_secret: "test_client_secret"

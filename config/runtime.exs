@@ -44,6 +44,32 @@ if System.get_env("PHX_SERVER") do
 end
 
 if config_env() == :prod do
+  # Configure GitHub OAuth for production
+  github_client_id =
+    System.get_env("GITHUB_CLIENT_ID") ||
+      raise "environment variable GITHUB_CLIENT_ID is missing."
+
+  github_client_secret =
+    System.get_env("GITHUB_CLIENT_SECRET") ||
+      raise "environment variable GITHUB_CLIENT_SECRET is missing."
+
+  config :ueberauth, Ueberauth.Strategy.Github.OAuth,
+    client_id: github_client_id,
+    client_secret: github_client_secret
+
+  # Configure Cloak encryption for production
+  cloak_key =
+    System.get_env("CLOAK_KEY") ||
+      raise "environment variable CLOAK_KEY is missing."
+
+  config :diagram_forge, DiagramForge.Vault,
+    ciphers: [
+      default: {
+        Cloak.Ciphers.AES.GCM,
+        tag: "AES.GCM.V1", key: Base.decode64!(cloak_key), iv_length: 12
+      }
+    ]
+
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """
