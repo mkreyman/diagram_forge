@@ -1,9 +1,17 @@
 defmodule DiagramForge.Content.ModeratorTest do
-  use DiagramForge.DataCase, async: true
+  @moduledoc """
+  Tests for the content moderation system.
+
+  This test file is intentionally non-async because it modifies global
+  Application config (Moderator :enabled setting), which would cause
+  race conditions with other async tests that rely on this config.
+  """
+  use DiagramForge.DataCase, async: false
 
   import Mox
 
   alias DiagramForge.Content.Moderator
+  alias DiagramForge.MockAIClient
 
   setup :verify_on_exit!
 
@@ -20,6 +28,172 @@ defmodule DiagramForge.Content.ModeratorTest do
       assert result.decision == :approve
       assert result.confidence == 1.0
       assert result.reason == "Moderation disabled"
+    end
+  end
+
+  describe "moderate/2 when moderation is enabled" do
+    setup do
+      # Temporarily enable moderation for these tests
+      original_config = Application.get_env(:diagram_forge, Moderator, [])
+      Application.put_env(:diagram_forge, Moderator, Keyword.put(original_config, :enabled, true))
+
+      on_exit(fn ->
+        Application.put_env(:diagram_forge, Moderator, original_config)
+      end)
+
+      :ok
+    end
+
+    test "approves clean technical content via AI" do
+      diagram =
+        fixture(:diagram, title: "System Architecture", diagram_source: "flowchart LR\n  A --> B")
+
+      ai_response =
+        Jason.encode!(%{
+          "decision" => "approve",
+          "confidence" => 0.92,
+          "reason" => "Technical diagram showing system architecture flow",
+          "flags" => []
+        })
+
+      expect(MockAIClient, :chat!, fn messages, opts ->
+        assert length(messages) == 1
+        assert hd(messages)["role"] == "user"
+        assert hd(messages)["content"] =~ "System Architecture"
+        assert opts[:operation] == "content_moderation"
+        ai_response
+      end)
+
+      assert {:ok, result} = Moderator.moderate(diagram)
+      assert result.decision == :approve
+      assert result.confidence == 0.92
+      assert result.reason == "Technical diagram showing system architecture flow"
+    end
+
+    test "rejects policy-violating content via AI" do
+      diagram = fixture(:diagram, title: "Spam Diagram", summary: "Buy now! Click here!")
+
+      ai_response =
+        Jason.encode!(%{
+          "decision" => "reject",
+          "confidence" => 0.88,
+          "reason" => "Contains promotional spam content",
+          "flags" => ["spam", "advertising"]
+        })
+
+      expect(MockAIClient, :chat!, fn _messages, _opts ->
+        ai_response
+      end)
+
+      assert {:ok, result} = Moderator.moderate(diagram)
+      assert result.decision == :reject
+      assert result.confidence == 0.88
+      assert "spam" in result.flags
+    end
+
+    test "returns manual_review for uncertain content" do
+      diagram = fixture(:diagram, title: "Ambiguous Diagram")
+
+      ai_response =
+        Jason.encode!(%{
+          "decision" => "manual_review",
+          "confidence" => 0.45,
+          "reason" => "Content requires human review due to ambiguous nature",
+          "flags" => ["uncertain"]
+        })
+
+      expect(MockAIClient, :chat!, fn _messages, _opts ->
+        ai_response
+      end)
+
+      assert {:ok, result} = Moderator.moderate(diagram)
+      assert result.decision == :manual_review
+      assert result.confidence == 0.45
+    end
+
+    test "flags suspicious AI responses for manual review" do
+      diagram = fixture(:diagram, title: "Test Diagram")
+
+      # AI returns suspiciously high confidence with short reason (injection attempt?)
+      ai_response =
+        Jason.encode!(%{
+          "decision" => "approve",
+          "confidence" => 0.99,
+          "reason" => "OK",
+          "flags" => []
+        })
+
+      expect(MockAIClient, :chat!, fn _messages, _opts ->
+        ai_response
+      end)
+
+      assert {:ok, result} = Moderator.moderate(diagram)
+      # Suspicious results get flagged for manual review
+      assert result.decision == :manual_review
+      assert "suspicious_output" in result.flags
+    end
+
+    test "handles AI client errors gracefully" do
+      diagram = fixture(:diagram, title: "Test Diagram")
+
+      expect(MockAIClient, :chat!, fn _messages, _opts ->
+        raise "API request failed: rate limited"
+      end)
+
+      assert {:error, reason} = Moderator.moderate(diagram)
+      assert reason =~ "Moderation request failed"
+    end
+
+    test "handles invalid JSON response from AI" do
+      diagram = fixture(:diagram, title: "Test Diagram")
+
+      expect(MockAIClient, :chat!, fn _messages, _opts ->
+        "This is not valid JSON"
+      end)
+
+      assert {:error, reason} = Moderator.moderate(diagram)
+      assert reason =~ "Failed to parse moderation response"
+    end
+
+    test "passes correct options to AI client" do
+      diagram = fixture(:diagram)
+
+      ai_response =
+        Jason.encode!(%{
+          "decision" => "approve",
+          "confidence" => 0.9,
+          "reason" => "Clean technical content",
+          "flags" => []
+        })
+
+      expect(MockAIClient, :chat!, fn _messages, opts ->
+        # Verify the options passed to the AI client
+        assert opts[:operation] == "content_moderation"
+        assert opts[:user_id] == nil
+        assert opts[:track_usage] == false
+        ai_response
+      end)
+
+      Moderator.moderate(diagram, track_usage: false)
+    end
+
+    test "can enable usage tracking via options" do
+      diagram = fixture(:diagram)
+
+      ai_response =
+        Jason.encode!(%{
+          "decision" => "approve",
+          "confidence" => 0.9,
+          "reason" => "Clean technical content",
+          "flags" => []
+        })
+
+      expect(MockAIClient, :chat!, fn _messages, opts ->
+        assert opts[:track_usage] == true
+        ai_response
+      end)
+
+      Moderator.moderate(diagram, track_usage: true)
     end
   end
 

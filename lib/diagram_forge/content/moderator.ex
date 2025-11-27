@@ -28,6 +28,11 @@ defmodule DiagramForge.Content.Moderator do
   alias DiagramForge.AI.Client
   alias DiagramForge.Diagrams.Diagram
 
+  # Dependency injection for AI client - enables testing with mocks
+  defp ai_client do
+    Application.get_env(:diagram_forge, :ai_client, Client)
+  end
+
   # Hardened moderation prompt with clear untrusted input delimiters
   @moderation_prompt """
   You are a content moderator for a technical diagram creation platform.
@@ -109,7 +114,7 @@ defmodule DiagramForge.Content.Moderator do
 
     try do
       response =
-        Client.chat!(messages,
+        ai_client().chat!(messages,
           operation: "content_moderation",
           user_id: nil,
           track_usage: track_usage
