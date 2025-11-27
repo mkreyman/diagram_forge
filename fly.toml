@@ -13,8 +13,9 @@ kill_signal = 'SIGTERM'
   release_command = '/app/bin/migrate'
 
 [env]
-  PHX_HOST = 'diagram-forge.fly.dev'
+  PHX_HOST = 'diagramforge.dev'
   PORT = '8080'
+  PHX_SERVER = 'true'
 
 [http_service]
   internal_port = 8080
