@@ -169,3 +169,223 @@ for user <- users do
 end
 IO.puts("")
 IO.puts("View the dashboard at: /admin/usage/dashboard")
+
+# ============================================================================
+# Moderation Queue Test Data
+# ============================================================================
+
+IO.puts("")
+IO.puts("Seeding moderation queue data...")
+
+alias DiagramForge.Diagrams.{Document, Diagram}
+alias DiagramForge.Content.ModerationLog
+
+# Create a document for moderation test diagrams
+mod_document =
+  case Repo.get_by(Document, title: "Moderation Test Diagrams") do
+    nil ->
+      %Document{user_id: alice.id}
+      |> Document.changeset(%{
+        title: "Moderation Test Diagrams",
+        source_type: :markdown,
+        path: "docs/moderation-test.md",
+        status: :ready,
+        raw_text: "Test diagrams for moderation queue testing."
+      })
+      |> Repo.insert!()
+
+    existing ->
+      existing
+  end
+
+# Helper to create diagrams with moderation status
+create_moderated_diagram = fn title, source, status, reason, _user ->
+  diagram =
+    %Diagram{}
+    |> Diagram.changeset(%{
+      document_id: mod_document.id,
+      title: title,
+      tags: ["test", "moderation"],
+      diagram_source: source,
+      summary: "Test diagram for moderation status: #{status}",
+      visibility: :public
+    })
+    |> Repo.insert!()
+
+  # Update moderation status
+  diagram
+  |> Diagram.moderation_changeset(%{
+    moderation_status: status,
+    moderation_reason: reason,
+    moderated_at: DateTime.utc_now()
+  })
+  |> Repo.update!()
+
+  # Create moderation log
+  action =
+    case status do
+      :approved -> "ai_approve"
+      :rejected -> "ai_reject"
+      :manual_review -> "ai_manual_review"
+      _ -> "ai_approve"
+    end
+
+  %ModerationLog{}
+  |> ModerationLog.changeset(%{
+    diagram_id: diagram.id,
+    action: action,
+    previous_status: "pending",
+    new_status: to_string(status),
+    reason: reason,
+    ai_confidence: :rand.uniform() * 0.5 + 0.5,
+    ai_flags: if(status == :manual_review, do: ["suspicious_output"], else: [])
+  })
+  |> Repo.insert!()
+
+  diagram
+end
+
+# Clear existing moderation test diagrams
+Repo.delete_all(from d in Diagram, where: d.document_id == ^mod_document.id)
+
+# Create diagrams pending manual review (these show in the moderation queue)
+IO.puts("Creating diagrams for manual review...")
+
+create_moderated_diagram.(
+  "Suspicious System Architecture",
+  """
+  flowchart TD
+      A[User Input] --> B[Process Data]
+      B --> C[Store Results]
+      C --> D[Return Response]
+  """,
+  :manual_review,
+  "AI flagged for review: Content contains unusual patterns that require human verification",
+  alice
+)
+
+create_moderated_diagram.(
+  "Workflow with Flagged Content",
+  """
+  sequenceDiagram
+      participant U as User
+      participant S as Server
+      U->>S: Submit Request
+      S-->>U: Process and Respond
+  """,
+  :manual_review,
+  "AI flagged for review: Suspicious output detected - confidence below threshold",
+  bob
+)
+
+create_moderated_diagram.(
+  "Data Pipeline Review Required",
+  """
+  flowchart LR
+      Input[Data Source] --> Transform[ETL Process]
+      Transform --> Load[Data Warehouse]
+      Load --> Analytics[BI Dashboard]
+  """,
+  :manual_review,
+  "AI flagged for review: Content may contain embedded instructions",
+  charlie
+)
+
+create_moderated_diagram.(
+  "API Integration Needs Review",
+  """
+  flowchart TD
+      Client[Mobile App] --> API[REST API]
+      API --> Auth[Auth Service]
+      API --> DB[(Database)]
+  """,
+  :manual_review,
+  "AI flagged for review: Output validation detected potential injection pattern",
+  alice
+)
+
+create_moderated_diagram.(
+  "Microservices Architecture Flagged",
+  """
+  flowchart LR
+      GW[API Gateway] --> S1[Service A]
+      GW --> S2[Service B]
+      S1 --> MQ[Message Queue]
+      S2 --> MQ
+  """,
+  :manual_review,
+  "AI flagged for review: Low confidence score (0.42) - requires human judgment",
+  bob
+)
+
+# Create some approved diagrams
+IO.puts("Creating approved diagrams...")
+
+create_moderated_diagram.(
+  "Clean Architecture Diagram",
+  """
+  flowchart TD
+      UI[Presentation Layer] --> App[Application Layer]
+      App --> Domain[Domain Layer]
+      Domain --> Infra[Infrastructure]
+  """,
+  :approved,
+  "AI approved: Clean technical content with high confidence",
+  alice
+)
+
+create_moderated_diagram.(
+  "Database Schema - Approved",
+  """
+  erDiagram
+      USER ||--o{ ORDER : places
+      ORDER ||--|{ LINE_ITEM : contains
+      PRODUCT ||--o{ LINE_ITEM : includes
+  """,
+  :approved,
+  "AI approved: Standard database diagram, no policy violations",
+  bob
+)
+
+# Create some rejected diagrams
+IO.puts("Creating rejected diagrams...")
+
+create_moderated_diagram.(
+  "Rejected Diagram - Policy Violation",
+  """
+  flowchart TD
+      A[Step 1] --> B[Step 2]
+      B --> C[Step 3]
+  """,
+  :rejected,
+  "AI rejected: Content violated spam policy - promotional material detected",
+  charlie
+)
+
+create_moderated_diagram.(
+  "Another Rejected Example",
+  """
+  flowchart LR
+      X[Input] --> Y[Process]
+      Y --> Z[Output]
+  """,
+  :rejected,
+  "AI rejected: Inappropriate content detected in diagram labels",
+  alice
+)
+
+# Summary
+pending_review = Repo.aggregate(from(d in Diagram, where: d.moderation_status == :manual_review), :count)
+approved_count = Repo.aggregate(from(d in Diagram, where: d.moderation_status == :approved), :count)
+rejected_count = Repo.aggregate(from(d in Diagram, where: d.moderation_status == :rejected), :count)
+
+IO.puts("")
+IO.puts("=" |> String.duplicate(50))
+IO.puts("Moderation Queue Data Complete!")
+IO.puts("=" |> String.duplicate(50))
+IO.puts("")
+IO.puts("Pending review: #{pending_review}")
+IO.puts("Approved: #{approved_count}")
+IO.puts("Rejected: #{rejected_count}")
+IO.puts("")
+IO.puts("View the moderation queue at: /admin/moderation")

@@ -66,6 +66,9 @@ defmodule DiagramForgeWeb.Router do
       # Dashboard
       live "/dashboard", DiagramForgeWeb.Admin.DashboardLive
 
+      # Content Moderation Queue
+      live "/moderation", DiagramForgeWeb.Admin.ModerationQueueLive
+
       # User management
       live_resources("/users", DiagramForgeWeb.Admin.UserResource)
 

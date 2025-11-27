@@ -121,6 +121,44 @@ defmodule DiagramForgeWeb.Admin.DiagramResource do
         searchable: true,
         only: [:show, :edit, :new]
       },
+      moderation_status: %{
+        module: Backpex.Fields.Select,
+        label: "Moderation",
+        options: [
+          {"Pending", :pending},
+          {"Approved", :approved},
+          {"Rejected", :rejected},
+          {"Manual Review", :manual_review}
+        ],
+        render: fn assigns ->
+          {color, text} =
+            case assigns.value do
+              :pending -> {"bg-yellow-100 text-yellow-800", "Pending"}
+              :approved -> {"bg-green-100 text-green-800", "Approved"}
+              :rejected -> {"bg-red-100 text-red-800", "Rejected"}
+              :manual_review -> {"bg-orange-100 text-orange-800", "Review"}
+              _ -> {"bg-gray-100 text-gray-800", "Unknown"}
+            end
+
+          assigns = assign(assigns, color: color, text: text)
+
+          ~H"""
+          <span class={"inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium #{@color}"}>
+            {@text}
+          </span>
+          """
+        end
+      },
+      moderation_reason: %{
+        module: Backpex.Fields.Textarea,
+        label: "Moderation Reason",
+        only: [:show]
+      },
+      moderated_at: %{
+        module: Backpex.Fields.DateTime,
+        label: "Moderated At",
+        only: [:show]
+      },
       inserted_at: %{
         module: Backpex.Fields.DateTime,
         label: "Created",

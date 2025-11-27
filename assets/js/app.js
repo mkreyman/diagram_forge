@@ -173,11 +173,49 @@ const CopyToClipboard = {
   }
 }
 
+// Modal Hook for dialog elements
+const Modal = {
+  mounted() {
+    const modalId = this.el.id
+    this.closingFromLiveView = false
+
+    this.openHandler = ({id}) => {
+      if (id === modalId && this.el.showModal) {
+        this.el.showModal()
+      }
+    }
+
+    this.closeHandler = ({id}) => {
+      if (id === modalId && this.el.close) {
+        this.closingFromLiveView = true
+        this.el.close()
+      }
+    }
+
+    // Sync native dialog close (ESC key, backdrop click) back to LiveView
+    // Only fire if not already closing from LiveView command
+    this.el.addEventListener("close", () => {
+      if (this.closingFromLiveView) {
+        this.closingFromLiveView = false
+      } else {
+        this.pushEvent("modal_closed", {id: modalId})
+      }
+    })
+
+    this.handleEvent("open-modal", this.openHandler)
+    this.handleEvent("close-modal", this.closeHandler)
+  },
+
+  destroyed() {
+    // Event handlers are automatically cleaned up by LiveView
+  }
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, Mermaid, CopyToClipboard},
+  hooks: {...colocatedHooks, Mermaid, CopyToClipboard, Modal},
 })
 
 // Show progress bar on live navigation and form submits

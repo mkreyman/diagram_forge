@@ -29,6 +29,8 @@ defmodule DiagramForge.Diagrams.Diagram do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
+  @type t :: %__MODULE__{}
+
   schema "diagrams" do
     belongs_to :document, DiagramForge.Diagrams.Document
     belongs_to :forked_from, __MODULE__
@@ -49,6 +51,15 @@ defmodule DiagramForge.Diagrams.Diagram do
     field :diagram_source, :string
     field :summary, :string
     field :notes_md, :string
+
+    # Content moderation
+    field :moderation_status, Ecto.Enum,
+      values: [:pending, :approved, :rejected, :manual_review],
+      default: :pending
+
+    field :moderation_reason, :string
+    field :moderated_at, :utc_datetime
+    belongs_to :moderated_by, DiagramForge.Accounts.User
 
     timestamps()
   end
@@ -71,4 +82,28 @@ defmodule DiagramForge.Diagrams.Diagram do
     |> foreign_key_constraint(:document_id)
     |> foreign_key_constraint(:forked_from_id)
   end
+
+  @doc """
+  Changeset for updating moderation status.
+  """
+  def moderation_changeset(diagram, attrs) do
+    diagram
+    |> cast(attrs, [:moderation_status, :moderation_reason, :moderated_at, :moderated_by_id])
+    |> validate_inclusion(:moderation_status, [:pending, :approved, :rejected, :manual_review])
+    |> foreign_key_constraint(:moderated_by_id)
+  end
+
+  @doc """
+  Returns true if the diagram is publicly visible.
+  A diagram must be both public AND approved to be publicly visible.
+  """
+  def publicly_visible?(%__MODULE__{visibility: :public, moderation_status: :approved}), do: true
+  def publicly_visible?(_), do: false
+
+  @doc """
+  Returns true if the diagram requires moderation.
+  Only public diagrams require moderation.
+  """
+  def requires_moderation?(%__MODULE__{visibility: :public}), do: true
+  def requires_moderation?(_), do: false
 end

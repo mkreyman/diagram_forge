@@ -42,7 +42,7 @@ defmodule DiagramForge.AI.Options do
     track_usage: true
   ]
 
-  @valid_operations ~w(diagram_generation syntax_fix)
+  @valid_operations ~w(diagram_generation syntax_fix content_moderation)
 
   @doc """
   Creates validated AI options from a keyword list.

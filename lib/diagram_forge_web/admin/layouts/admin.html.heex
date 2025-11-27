@@ -6,6 +6,9 @@
       <.link navigate={~p"/admin/dashboard"} class="btn btn-ghost btn-sm">
         Dashboard
       </.link>
+      <.link navigate={~p"/admin/moderation"} class="btn btn-ghost btn-sm">
+        Moderation
+      </.link>
       <.link navigate={~p"/admin/users"} class="btn btn-ghost btn-sm">
         Users
       </.link>
@@ -54,6 +57,12 @@
       navigate={~p"/admin/dashboard"}
     >
       <Backpex.HTML.CoreComponents.icon name="hero-home" class="size-5" /> Dashboard
+    </Backpex.HTML.Layout.sidebar_item>
+    <Backpex.HTML.Layout.sidebar_item
+      current_url={assigns[:current_url] || ""}
+      navigate={~p"/admin/moderation"}
+    >
+      <Backpex.HTML.CoreComponents.icon name="hero-shield-check" class="size-5" /> Moderation
     </Backpex.HTML.Layout.sidebar_item>
     <Backpex.HTML.Layout.sidebar_item
       current_url={assigns[:current_url] || ""}

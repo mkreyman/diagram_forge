@@ -242,6 +242,18 @@ defmodule DiagramForge.Diagrams do
   end
 
   @doc """
+  Gets a single diagram by ID.
+
+  Returns `{:ok, diagram}` or `{:error, :not_found}`.
+  """
+  def get_diagram(id) do
+    case Repo.get(Diagram, id) do
+      nil -> {:error, :not_found}
+      diagram -> {:ok, diagram}
+    end
+  end
+
+  @doc """
   Lists diagrams for a given document.
   """
   def list_diagrams_for_document(document_id) do

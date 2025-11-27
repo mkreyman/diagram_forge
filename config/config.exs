@@ -66,7 +66,17 @@ config :logger, :default_formatter,
     :next_delay_ms,
     # AI client metadata
     :reason,
-    :model
+    :model,
+    # Content moderation metadata
+    :diagram_id,
+    :decision,
+    :confidence,
+    :response,
+    # Injection detection metadata
+    :reasons,
+    :suspicious_fields,
+    :patterns,
+    :text_preview
   ]
 
 # Use Jason for JSON parsing in Phoenix
@@ -81,7 +91,7 @@ config :backpex,
 # Configure Oban
 config :diagram_forge, Oban,
   engine: Oban.Engines.Basic,
-  queues: [default: 10, documents: 5, diagrams: 10],
+  queues: [default: 10, documents: 5, diagrams: 10, moderation: 5],
   repo: DiagramForge.Repo,
   plugins: [
     Oban.Plugins.Pruner,
@@ -110,6 +120,33 @@ config :diagram_forge, DiagramForge.Vault,
       tag: "AES.GCM.V1", key: Base.decode64!(System.get_env("CLOAK_KEY") || ""), iv_length: 12
     }
   ]
+
+# Configure content moderation
+config :diagram_forge, DiagramForge.Content, moderation_enabled: true
+
+config :diagram_forge, DiagramForge.Content.Moderator,
+  enabled: true,
+  auto_approve_threshold: 0.8
+
+config :diagram_forge, DiagramForge.Content.Sanitizer,
+  enabled: true,
+  strip_urls: true
+
+config :diagram_forge, DiagramForge.Content.MermaidSanitizer, enabled: true
+
+config :diagram_forge, DiagramForge.Content.InjectionDetector,
+  enabled: true,
+  # Action when injection detected: :flag_for_review | :reject | :log_only
+  action: :flag_for_review
+
+# Configure Hammer for rate limiting
+config :hammer,
+  backend:
+    {Hammer.Backend.ETS,
+     [
+       expiry_ms: 60_000 * 60,
+       cleanup_interval_ms: 60_000 * 10
+     ]}
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

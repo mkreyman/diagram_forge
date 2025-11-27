@@ -8,6 +8,7 @@ defmodule DiagramForgeWeb.Admin.DashboardLive do
   import Ecto.Query
 
   alias DiagramForge.Accounts.User
+  alias DiagramForge.Content
   alias DiagramForge.Diagrams.Diagram
   alias DiagramForge.Diagrams.Document
   alias DiagramForge.Repo
@@ -69,6 +70,12 @@ defmodule DiagramForgeWeb.Admin.DashboardLive do
       <:sidebar>
         <Backpex.HTML.Layout.sidebar_item current_url={@current_url} navigate={~p"/admin/dashboard"}>
           <Backpex.HTML.CoreComponents.icon name="hero-home" class="size-5" /> Dashboard
+        </Backpex.HTML.Layout.sidebar_item>
+        <Backpex.HTML.Layout.sidebar_item current_url={@current_url} navigate={~p"/admin/moderation"}>
+          <Backpex.HTML.CoreComponents.icon name="hero-shield-check" class="size-5" /> Moderation
+          <span :if={@moderation_pending > 0} class="badge badge-warning badge-sm ml-auto">
+            {@moderation_pending}
+          </span>
         </Backpex.HTML.Layout.sidebar_item>
         <Backpex.HTML.Layout.sidebar_item current_url={@current_url} navigate={~p"/admin/users"}>
           <Backpex.HTML.CoreComponents.icon name="hero-users" class="size-5" /> Users
@@ -290,5 +297,6 @@ defmodule DiagramForgeWeb.Admin.DashboardLive do
     |> assign(:recent_users, Repo.all(from(u in User, order_by: [desc: u.inserted_at], limit: 5)))
     |> assign(:monthly_cost, Usage.get_total_monthly_usage(today.year, today.month))
     |> assign(:unacknowledged_alerts, Usage.count_unacknowledged_alerts())
+    |> assign(:moderation_pending, Content.get_moderation_stats().manual_review)
   end
 end

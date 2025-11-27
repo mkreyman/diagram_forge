@@ -67,3 +67,13 @@ config :diagram_forge, DiagramForge.Vault,
       iv_length: 12
     }
   ]
+
+# Disable content moderation in tests (mock it in specific tests)
+config :diagram_forge, DiagramForge.Content, moderation_enabled: false
+
+config :diagram_forge, DiagramForge.Content.Moderator, enabled: false
+
+# Enable injection detection in tests so we can test the patterns
+config :diagram_forge, DiagramForge.Content.InjectionDetector,
+  enabled: true,
+  action: :flag_for_review
