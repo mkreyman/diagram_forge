@@ -293,6 +293,26 @@ jobs:
 
 ## Fly.io Setup
 
+### Organization Deployment
+
+To deploy under a Fly.io organization (e.g., `ecommerce-friendly`) instead of your personal account, add `--org <org-name>` to the relevant commands:
+
+```bash
+# Launch app in organization
+fly launch --org ecommerce-friendly
+
+# Create Postgres in organization
+fly postgres create --name diagram-forge-db --org ecommerce-friendly
+
+# Create deploy token for organization
+fly tokens create deploy -x 999999h --org ecommerce-friendly
+```
+
+To list available organizations:
+```bash
+fly orgs list
+```
+
 ### Initial Setup
 
 1. **Install Fly CLI**:
@@ -316,7 +336,7 @@ jobs:
 
 4. **Launch app on Fly.io**:
    ```bash
-   fly launch
+   fly launch --org ecommerce-friendly
    ```
    This creates:
    - `fly.toml` - Fly.io configuration
@@ -380,8 +400,8 @@ fly secrets set STRIPE_TIP_URL="https://buy.stripe.com/your-link"
 ### Create Postgres Database
 
 ```bash
-# Create Fly Postgres cluster
-fly postgres create --name diagram-forge-db
+# Create Fly Postgres cluster (add --org if deploying to organization)
+fly postgres create --name diagram-forge-db --org ecommerce-friendly
 
 # Attach to your app (sets DATABASE_URL automatically)
 fly postgres attach diagram-forge-db
@@ -392,8 +412,8 @@ fly postgres attach diagram-forge-db
 For automated deployment, add `FLY_API_TOKEN` to GitHub repository secrets:
 
 ```bash
-# Generate a deploy token
-fly tokens create deploy -x 999999h
+# Generate a deploy token (add --org if deploying to organization)
+fly tokens create deploy -x 999999h --org ecommerce-friendly
 
 # Add to GitHub: Settings > Secrets and variables > Actions > New repository secret
 # Name: FLY_API_TOKEN
@@ -531,9 +551,9 @@ fly certs show yourdomain.com
 ## Checklist
 
 - [ ] Generate release files: `mix phx.gen.release --docker`
-- [ ] Launch on Fly.io: `fly launch`
-- [ ] Create Postgres: `fly postgres create`
-- [ ] Attach database: `fly postgres attach`
+- [ ] Launch on Fly.io: `fly launch --org ecommerce-friendly`
+- [ ] Create Postgres: `fly postgres create --name diagram-forge-db --org ecommerce-friendly`
+- [ ] Attach database: `fly postgres attach diagram-forge-db`
 - [ ] Set required secrets via `fly secrets set`
 - [ ] Create GitHub OAuth App and set credentials
 - [ ] Add `FLY_API_TOKEN` to GitHub secrets
