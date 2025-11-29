@@ -161,8 +161,8 @@ Found a bug or have a feature request? [Open an issue](https://github.com/mkreym
 ## Documentation
 
 - [Deployment Pipeline](docs/deployment-pipeline.md) - CI/CD and Fly.io deployment
-- [Admin Panel](docs/admin_panel.md) - Admin interface documentation
-- [Content Moderation](docs/content-moderation.md) - Moderation system details
+- [Admin Panel](docs/features/admin_panel.md) - Admin interface documentation
+- [Content Moderation](docs/features/content-moderation.md) - Moderation system details
 
 ## License
 
