@@ -941,6 +941,40 @@ defmodule DiagramForge.Diagrams do
   end
 
   # ============================================================================
+  # Admin Functions
+  # ============================================================================
+
+  @doc """
+  Admin-only function to bulk update diagram visibility.
+  Bypasses user authorization checks.
+
+  ## Examples
+
+      iex> admin_bulk_update_visibility(diagrams, :public)
+      {:ok, 5}
+
+      iex> admin_bulk_update_visibility([], :public)
+      {:ok, 0}
+  """
+  def admin_bulk_update_visibility([], _visibility), do: {:ok, 0}
+
+  def admin_bulk_update_visibility(diagrams, visibility)
+      when visibility in [:public, :unlisted, :private] do
+    ids = Enum.map(diagrams, & &1.id)
+
+    {count, _} =
+      from(d in Diagram, where: d.id in ^ids)
+      |> Repo.update_all(
+        set: [
+          visibility: visibility,
+          updated_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        ]
+      )
+
+    {:ok, count}
+  end
+
+  # ============================================================================
   # AI Options Validation
   # ============================================================================
 

@@ -173,6 +173,16 @@ defmodule DiagramForgeWeb.Admin.DiagramResource do
   end
 
   @impl Backpex.LiveResource
+  def item_actions(default_actions) do
+    # Keep default show/edit/delete, add visibility actions
+    Keyword.merge(default_actions,
+      make_public: %{module: DiagramForgeWeb.Admin.ItemAction.MakePublic, only: [:index]},
+      make_unlisted: %{module: DiagramForgeWeb.Admin.ItemAction.MakeUnlisted, only: [:index]},
+      make_private: %{module: DiagramForgeWeb.Admin.ItemAction.MakePrivate, only: [:index]}
+    )
+  end
+
+  @impl Backpex.LiveResource
   def can?(assigns, :index, _item), do: superadmin?(assigns)
   def can?(assigns, :new, _item), do: superadmin?(assigns)
   def can?(assigns, :show, _item), do: superadmin?(assigns)
