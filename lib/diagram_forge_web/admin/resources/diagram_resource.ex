@@ -188,6 +188,9 @@ defmodule DiagramForgeWeb.Admin.DiagramResource do
   def can?(assigns, :show, _item), do: superadmin?(assigns)
   def can?(assigns, :edit, _item), do: superadmin?(assigns)
   def can?(assigns, :delete, _item), do: superadmin?(assigns)
+  def can?(assigns, :make_public, _item), do: superadmin?(assigns)
+  def can?(assigns, :make_unlisted, _item), do: superadmin?(assigns)
+  def can?(assigns, :make_private, _item), do: superadmin?(assigns)
   def can?(_assigns, _action, _item), do: false
 
   defp superadmin?(assigns) do
