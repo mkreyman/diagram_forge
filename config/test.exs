@@ -5,13 +5,32 @@ import Config
 # The MIX_TEST_PARTITION environment variable can be used
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
+# Test concurrency and the Repo pool are ONE binding. Under the SQL Sandbox every
+# concurrently running async test holds a connection for its whole duration, so
+# ExUnit's `max_cases` IS this suite's connection demand: a pool below it deadlocks
+# on checkout, and a pool above it reserves slots nothing can use.
+#
+# The `min(_, 8)` bounds the pool to what the SUITE needs instead of to the size of
+# the machine. `schedulers_online()` is 24 on the Linux dev box, so the previous
+# `schedulers_online() * 2` asked it for 48 connections -- and two suites plus a dev
+# server exhausted a stock Postgres `max_connections` of 100 that way (infra#124
+# raised it to 300, which removes the wall but not the reason). 48 is also 2x CPU
+# oversubscription on 24 threads, which surfaces as timeout-shaped flakes that read
+# like code bugs rather than like contention.
+#
+# CI is unaffected: the runners are scheduler-bounded well below 8, so `min` never
+# fires there and this reduces to the old expression.
+test_concurrency = min(System.schedulers_online(), 8) * 2
+
+config :ex_unit, max_cases: test_concurrency
+
 config :diagram_forge, DiagramForge.Repo,
   username: "postgres",
   password: "postgres",
   hostname: "localhost",
   database: "diagram_forge_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  pool_size: test_concurrency
 
 # Disable Oban queues in test mode to prevent DB ownership errors
 config :diagram_forge, Oban,
